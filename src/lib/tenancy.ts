@@ -61,4 +61,7 @@ export const DIRECT_ORG_MODELS = new Set<string>([
   'ApiKey',
   'AuditLog',
   'ReportingRate',
+  'WaSettings', // S4 — per-org WhatsApp config
+  'WaTemplate', // S4 — template manager
+  'WebhookEndpoint', // S4 — outbound webhook subscriptions
 ]);

@@ -111,6 +111,14 @@ enum SubscriptionSource {
   manual
 }
 
+enum WaTemplateStatus {
+  draft
+  submitted
+  approved
+  rejected
+  paused
+}
+
 // ----------------------------- tenancy roots -----------------------------
 
 model Org {
@@ -120,14 +128,17 @@ model Org {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users           User[]
-  stores          Store[]
-  blacklistOrigin BlacklistEntry[] @relation("BlacklistSourceOrg")
-  subscriptions   Subscription[]
-  usageCounters   UsageCounter[]
-  apiKeys         ApiKey[]
-  auditLogs       AuditLog[]
-  reportingRates  ReportingRate[]
+  users            User[]
+  stores           Store[]
+  blacklistOrigin  BlacklistEntry[] @relation("BlacklistSourceOrg")
+  subscriptions    Subscription[]
+  usageCounters    UsageCounter[]
+  apiKeys          ApiKey[]
+  auditLogs        AuditLog[]
+  reportingRates   ReportingRate[]
+  waSettings       WaSettings?
+  waTemplates      WaTemplate[]
+  webhookEndpoints WebhookEndpoint[]
 
   @@map("orgs")
 }
@@ -162,10 +173,11 @@ model Store {
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
-  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  forms    Form[]
-  products Product[]
-  orders   Order[]
+  org            Org             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  forms          Form[]
+  products       Product[]
+  orders         Order[]
+  abandonedLeads AbandonedLead[]
 
   @@index([orgId])
   @@map("stores")
@@ -183,10 +195,11 @@ model Form {
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
-  store         Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  formProducts  FormProduct[]
-  shippingRules ShippingRule[]
-  orders        Order[]
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  formProducts   FormProduct[]
+  shippingRules  ShippingRule[]
+  orders         Order[]
+  abandonedLeads AbandonedLead[]
 
   @@index([storeId])
   @@map("forms")
@@ -342,6 +355,12 @@ model Order {
 
   riskScore         Int      @default(0) @map("risk_score")
   statusHistoryJson Json?    @map("status_history_json")
+
+  // S4: staff assignment (confirmation teams / agency mode foundation) and the
+  // `unreachable` substate retry counter (NOT a canonical ladder rung — ADR-0003).
+  assignedTo       String? @map("assigned_to")
+  unreachableCount Int     @default(0) @map("unreachable_count")
+
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -350,6 +369,7 @@ model Order {
   governorate    Governorate?    @relation(fields: [governorateId], references: [id])
   events         EventOutbox[]
   waConversation WaConversation?
+  abandonedLeads AbandonedLead[]
 
   @@index([formId, status]) // approved addition #2
   @@index([phoneE164]) // approved addition #2
@@ -397,13 +417,135 @@ model WaConversation {
   orderId       String    @unique @map("order_id")
   waId          String    @map("wa_id")
   state         String
+  humanHandoff  Boolean   @default(false) @map("human_handoff") // kill-switch: stops all automation on the thread
+  optedOut      Boolean   @default(false) @map("opted_out") // buyer sent إيقاف
   lastMessageAt DateTime? @map("last_message_at")
+  lastInboundAt DateTime? @map("last_inbound_at") // anchors the 24h customer-service window
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order    Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  messages WaMessage[]
 
   @@map("wa_conversations")
+}
+
+// Inbound/outbound WA message log. `providerMessageId` is UNIQUE so the inbound
+// webhook is idempotent on replay (S4 testing bar).
+model WaMessage {
+  id                String   @id @default(cuid())
+  conversationId    String   @map("conversation_id")
+  direction         String // inbound | outbound
+  providerMessageId String?  @unique @map("provider_message_id")
+  type              String // template | text | button | system
+  bodyJson          Json     @map("body_json")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  conversation WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("wa_messages")
+}
+
+// Per-org WhatsApp settings. The access token is sealed via the libsodium vault
+// (same posture as stores.credentials_json). One row per org.
+model WaSettings {
+  id                   String   @id @default(cuid())
+  orgId                String   @unique @map("org_id")
+  phoneNumberId        String?  @map("phone_number_id")
+  wabaId               String?  @map("waba_id")
+  credentialsJson      Json?    @map("credentials_json") // sealed box: { accessToken }
+  autoAdvance          Boolean  @default(false) @map("auto_advance") // confirm reply → wa_confirmed without manual review
+  recoveryEnabled      Boolean  @default(true) @map("recovery_enabled")
+  recoveryDelayMinutes Int      @default(30) @map("recovery_delay_minutes")
+  recoveryFrequencyCap Int      @default(1) @map("recovery_frequency_cap")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("wa_settings")
+}
+
+// WA message templates with Meta approval tracking (template manager, scope §2).
+model WaTemplate {
+  id                 String           @id @default(cuid())
+  orgId              String           @map("org_id")
+  name               String // order_confirm | order_confirmed_thanks | abandoned_recovery | shipped_update | otp
+  language           String           @default("ar")
+  category           String // utility | marketing | authentication
+  bodyText           String           @map("body_text")
+  variablesJson      Json?            @map("variables_json")
+  status             WaTemplateStatus @default(draft)
+  providerTemplateId String?          @map("provider_template_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name, language])
+  @@index([orgId])
+  @@map("wa_templates")
+}
+
+// Phone captured before submit (SDK `zaggel:start`, scope §2). Recovered when a
+// matching order arrives or the recovery template is sent.
+model AbandonedLead {
+  id        String   @id @default(cuid())
+  formId    String   @map("form_id")
+  storeId   String   @map("store_id")
+  phoneE164 String   @map("phone_e164")
+  sendAfter DateTime @map("send_after")
+  recovered Boolean  @default(false)
+  attempts  Int      @default(0)
+  orderId   String?  @map("order_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  form  Form   @relation(fields: [formId], references: [id], onDelete: Cascade)
+  store Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order Order? @relation(fields: [orderId], references: [id])
+
+  @@index([sendAfter])
+  @@index([storeId])
+  @@map("abandoned_leads")
+}
+
+// Outbound webhook subscriptions (signed payloads — D14 groundwork, scope §3).
+model WebhookEndpoint {
+  id         String   @id @default(cuid())
+  orgId      String   @map("org_id")
+  url        String
+  secret     String // HMAC signing secret
+  eventsJson Json     @map("events_json") // ["order.created","order.confirmed","order.delivered","order.refused"]
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  org        Org               @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([orgId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id             String       @id @default(cuid())
+  endpointId     String       @map("endpoint_id")
+  eventName      String       @map("event_name")
+  payloadJson    Json         @map("payload_json")
+  status         OutboxStatus @default(pending)
+  attempts       Int          @default(0)
+  idempotencyKey String       @unique @map("idempotency_key")
+  deliveredAt    DateTime?    @map("delivered_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([endpointId])
+  @@map("webhook_deliveries")
 }
 
 // ----------------------------- entitlements (S1) -----------------------------
