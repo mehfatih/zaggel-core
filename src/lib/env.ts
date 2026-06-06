@@ -42,4 +42,15 @@ export const env = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+
+  // WhatsApp Business Cloud API (S4, ADR-0010). Per-org phone number id + access
+  // token live in wa_settings (token sealed via the vault). These are global:
+  // the Graph API version and the webhook verify token (Meta's GET handshake).
+  waGraphVersion: process.env.WA_GRAPH_VERSION ?? 'v21.0',
+  waWebhookVerifyToken: isProd
+    ? required('WA_WEBHOOK_VERIFY_TOKEN')
+    : process.env.WA_WEBHOOK_VERIFY_TOKEN ?? 'dev-wa-verify-token',
+
+  // Secret for the stateless WA OTP (HMAC over phone+form+time window — no table).
+  waOtpSecret: isProd ? required('WA_OTP_SECRET') : process.env.WA_OTP_SECRET ?? 'dev-wa-otp-secret',
 } as const;

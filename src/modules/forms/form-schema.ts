@@ -22,6 +22,8 @@ export const formSchemaV1 = z.object({
   button: z.object({ text: z.string().min(1) }),
   price_display: z.object({ enabled: z.boolean() }),
   whatsapp_fallback: z.object({ enabled: z.boolean(), number: z.string().nullable() }),
+  // S4: high-fraud forms require a WhatsApp OTP before the order is accepted.
+  otp_required: z.boolean().default(false),
 });
 
 export type FormSchemaV1 = z.infer<typeof formSchemaV1>;
@@ -41,5 +43,6 @@ export function defaultFormSchema(countryCode = 'IQ'): FormSchemaV1 {
     button: { text: 'اطلبي الآن — الدفع عند الاستلام 🚚' },
     price_display: { enabled: true },
     whatsapp_fallback: { enabled: true, number: null },
+    otp_required: false,
   };
 }

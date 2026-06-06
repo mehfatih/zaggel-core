@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
+// Tests share one client IP; disable the per-IP rate limiters so cumulative
+// integration traffic across files doesn't trip them.
+process.env.DISABLE_RATE_LIMIT = '1';
+
 const here = dirname(fileURLToPath(import.meta.url));
 try {
   const raw = readFileSync(resolve(here, '..', '.env'), 'utf8');

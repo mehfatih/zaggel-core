@@ -8,6 +8,8 @@ import { runAsSystem } from '../lib/tenancy.js';
 import { hashPassword } from '../lib/auth/password.js';
 import { ensureFreeSubscription } from '../lib/entitlements/service.js';
 import { defaultFormSchema } from '../modules/forms/form-schema.js';
+import { DEFAULT_TEMPLATES } from '../lib/wa/templates.js';
+import type { Prisma } from '@prisma/client';
 
 const DEMO_EMAIL = 'owner@levana.demo';
 const DEMO_PASSWORD = 'levana-dev-12345';
@@ -90,6 +92,30 @@ async function main(): Promise<void> {
 
     const iraqShip = await setShipping(iraqFormId, 'IQ-BG', 5000, 'IQD', '٢-٣ أيام'); // Baghdad
     const ksaShip = await setShipping(ksaFormId, 'SA-01', 25, 'SAR', '١-٢ أيام'); // Riyadh
+
+    // S4: WA settings (no real token → logging transport) with auto-advance ON so
+    // the DoD demo's تأكيد tap moves the order straight to wa_confirmed. The default
+    // AR templates are seeded as drafts for the dashboard template manager.
+    if (!(await prisma.waSettings.findFirst({ where: { orgId } }))) {
+      await prisma.waSettings.create({
+        data: { orgId, phoneNumberId: 'levana-demo-pnid', autoAdvance: true, recoveryEnabled: true },
+      });
+    }
+    for (const t of DEFAULT_TEMPLATES) {
+      const exists = await prisma.waTemplate.findFirst({ where: { orgId, name: t.name, language: t.language } });
+      if (exists) continue;
+      await prisma.waTemplate.create({
+        data: {
+          orgId,
+          name: t.name,
+          language: t.language,
+          category: t.category,
+          bodyText: t.bodyText,
+          variablesJson: { variables: t.variables, ...(t.buttons ? { buttons: t.buttons } : {}) } as unknown as Prisma.InputJsonValue,
+          status: 'draft',
+        },
+      });
+    }
 
     return { orgId, storeId: store.id, productId: product.id, iraqFormId, ksaFormId, iraqShip, ksaShip };
   });
