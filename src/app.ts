@@ -7,6 +7,7 @@ import { authRouter } from './modules/auth/auth.routes.js';
 import { orgsRouter } from './modules/orgs/orgs.routes.js';
 import { storesRouter } from './modules/stores/stores.routes.js';
 import { formsRouter } from './modules/forms/forms.routes.js';
+import { productsRouter } from './modules/products/products.routes.js';
 import { apiKeysRouter } from './modules/apikeys/apikeys.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 
@@ -28,6 +29,7 @@ export function createApp(): Express {
   app.use(orgsRouter);
   app.use(storesRouter);
   app.use(formsRouter);
+  app.use(productsRouter);
   app.use(apiKeysRouter);
 
   app.use((_req, res) => {
