@@ -8,7 +8,8 @@ import { listCurrencies, getCurrency } from '../catalog.js';
 describe('formatPrice — golden files (arabic numerals, default)', () => {
   const cases: Array<[number, string, string]> = [
     [21000, 'IQD', '٢١٬٠٠٠ د.ع'], // the founding Levana case (decimals=0)
-    [99, 'SAR', '٩٩٫٠٠ ر.س'], // decimals=2
+    [99, 'SAR', '٩٩ ر.س'], // KSA whole-number convention (decimals=0)
+    [99, 'AED', '٩٩٫٠٠ د.إ'], // decimals=2
     [99.5, 'KWD', '٩٩٫٥٠٠ د.ك'], // decimals=3
     [1000, 'DJF', '١٬٠٠٠ ف.ج'], // decimals=0 franc
     [1234567, 'EGP', '١٬٢٣٤٬٥٦٧٫٠٠ ج.م'], // multi-group
@@ -35,7 +36,7 @@ describe('formatPrice — golden files (western numerals)', () => {
 
 describe('formatAmount — numeral-style override + separators', () => {
   it('renders Arabic-Indic with U+066C thousands and U+066B decimal', () => {
-    const s = formatAmount(1234.5, 'SAR'); // SAR default = arabic
+    const s = formatAmount(1234.5, 'AED'); // AED default = arabic, decimals=2
     expect(s).toBe('١٬٢٣٤٫٥٠');
     expect(s).toContain('٬'); // U+066C, NOT the decimal glyph ٫
     expect(s.includes('٫')).toBe(true); // U+066B decimal

@@ -5,7 +5,7 @@
   },
   "currencies": [
     { "code": "IQD", "symbolAr": "د.ع", "symbolEn": "IQD", "nameAr": "دينار عراقي", "nameEn": "Iraqi Dinar", "decimals": 0, "numeralStyle": "arabic", "position": "after" },
-    { "code": "SAR", "symbolAr": "ر.س", "symbolEn": "SAR", "nameAr": "ريال سعودي", "nameEn": "Saudi Riyal", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "SAR", "symbolAr": "ر.س", "symbolEn": "SAR", "nameAr": "ريال سعودي", "nameEn": "Saudi Riyal", "decimals": 0, "numeralStyle": "arabic", "position": "after" },
     { "code": "AED", "symbolAr": "د.إ", "symbolEn": "AED", "nameAr": "درهم إماراتي", "nameEn": "UAE Dirham", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
     { "code": "KWD", "symbolAr": "د.ك", "symbolEn": "KWD", "nameAr": "دينار كويتي", "nameEn": "Kuwaiti Dinar", "decimals": 3, "numeralStyle": "arabic", "position": "after" },
     { "code": "BHD", "symbolAr": "د.ب", "symbolEn": "BHD", "nameAr": "دينار بحريني", "nameEn": "Bahraini Dinar", "decimals": 3, "numeralStyle": "arabic", "position": "after" },

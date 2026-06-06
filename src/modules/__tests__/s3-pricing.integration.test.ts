@@ -93,7 +93,7 @@ describe.skipIf(!hasDb)('S3 dual-market pricing e2e', () => {
     const pricing = res.body.manifest.pricing;
     expect(pricing.currency).toBe('SAR');
     expect(pricing.products[0].productId).toBe(productId); // same product record
-    expect(pricing.products[0].formatted.price).toBe('٩٩٫٠٠ ر.س');
+    expect(pricing.products[0].formatted.price).toBe('٩٩ ر.س');
   });
 
   it('Iraq order persists the display pair total (21,000 + 5,000 = 26,000 IQD)', async () => {
