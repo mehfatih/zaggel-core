@@ -5,13 +5,19 @@ import { Prisma, type Store } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { runAsSystem, runWithOrg } from '../../lib/tenancy.js';
 import { asyncHandler, validateBody } from '../../lib/http/handler.js';
-import { notFound, tooMany } from '../../lib/http/errors.js';
+import { notFound, tooMany, badRequest } from '../../lib/http/errors.js';
 import { publicOrderLimiter } from '../../lib/ratelimit.js';
 import { incrementUsage, checkLimit } from '../../lib/entitlements/service.js';
 import { buildPricingSnapshot, priceOrder, resolveFormCurrency } from '../../lib/pricing/engine.js';
-import { sendOrderConfirm } from '../../lib/wa/messages.js';
+import { sendOrderConfirm, sendOtpMessage } from '../../lib/wa/messages.js';
 import { markLeadsRecovered } from '../../lib/wa/recovery.js';
 import { getWaSettings } from '../../lib/wa/settings.js';
+import { generateOtp, verifyOtp } from '../../lib/wa/otp.js';
+
+/** Whether a form requires a WhatsApp OTP before accepting an order (S4). */
+function formRequiresOtp(form: { schemaJson: unknown }): boolean {
+  return (form.schemaJson as { otp_required?: boolean } | null)?.otp_required === true;
+}
 
 export const publicRouter = Router();
 
@@ -98,6 +104,7 @@ const orderSchema = z.object({
   landmark: z.string().max(300).optional(),
   // Selected line items; a single-product form may omit these (defaults to 1×).
   items: z.array(z.object({ productId: z.string().min(1), qty: z.coerce.number().int().positive().default(1) })).optional(),
+  otp: z.string().max(8).optional(), // required only when the form has otp_required
   company: z.string().optional(), // honeypot — must stay empty
   utm: z
     .object({
@@ -135,6 +142,12 @@ publicRouter.post(
     if (body.company && body.company.trim() !== '') {
       res.status(201).json({ ok: true, ref: 'ok' });
       return;
+    }
+
+    // OTP gate (S4): high-fraud forms require a valid WA OTP before we persist.
+    if (formRequiresOtp(form)) {
+      if (!body.otp) throw badRequest('otp_required');
+      if (!verifyOtp(body.phone, form.id, body.otp)) throw badRequest('otp_invalid');
     }
 
     const ip = req.ip ?? null;
@@ -252,6 +265,33 @@ publicRouter.post(
       }
     });
 
+    res.status(202).json({ ok: true });
+  }),
+);
+
+// --- WhatsApp OTP request (S4 scope §2; only meaningful when form.otp_required) ---
+const otpRequestSchema = z.object({ phone: z.string().min(3).max(32) });
+
+publicRouter.options('/public/v1/forms/:formId/otp/request', asyncHandler(async (req, res) => {
+  const resolved = await resolveForm(req.params.formId!);
+  if (resolved) applyCors(req, res, resolved.store);
+  res.status(204).end();
+}));
+
+publicRouter.post(
+  '/public/v1/forms/:formId/otp/request',
+  publicOrderLimiter,
+  validateBody(otpRequestSchema),
+  asyncHandler(async (req, res) => {
+    const resolved = await resolveForm(req.params.formId!);
+    if (!resolved || !resolved.form) throw notFound('form_not_found');
+    const { form, store, orgId } = resolved;
+    applyCors(req, res, store);
+    const { phone } = req.body as z.infer<typeof otpRequestSchema>;
+
+    // Generate + send inside the org context; the code itself is never returned.
+    const code = generateOtp(phone, form.id);
+    await runWithOrg(orgId, () => sendOtpMessage(orgId, phone, code));
     res.status(202).json({ ok: true });
   }),
 );

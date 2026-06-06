@@ -50,4 +50,7 @@ export const env = {
   waWebhookVerifyToken: isProd
     ? required('WA_WEBHOOK_VERIFY_TOKEN')
     : process.env.WA_WEBHOOK_VERIFY_TOKEN ?? 'dev-wa-verify-token',
+
+  // Secret for the stateless WA OTP (HMAC over phone+form+time window — no table).
+  waOtpSecret: isProd ? required('WA_OTP_SECRET') : process.env.WA_OTP_SECRET ?? 'dev-wa-otp-secret',
 } as const;

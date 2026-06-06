@@ -115,4 +115,19 @@ export async function sendShippedUpdate(
   }
 }
 
+/**
+ * Send an `otp` template to a phone with no order yet (pre-submit verification).
+ * No conversation/message log — there is no order to attach it to. Returns whether
+ * a real send was attempted (true) vs. a swallowed failure (false).
+ */
+export async function sendOtpMessage(orgId: string, phoneE164: string, code: string): Promise<boolean> {
+  try {
+    const transport = getTransport(await resolveWaCreds(orgId));
+    await transport.sendTemplate(toWaId(phoneE164), 'otp', 'ar', [code]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export { logMessage, canAutomate };
