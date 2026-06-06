@@ -10,6 +10,7 @@ import { formsRouter } from './modules/forms/forms.routes.js';
 import { productsRouter } from './modules/products/products.routes.js';
 import { pricingRouter } from './modules/pricing/pricing.routes.js';
 import { shippingRouter } from './modules/shipping/shipping.routes.js';
+import { reportingRouter } from './modules/reporting/reporting.routes.js';
 import { apiKeysRouter } from './modules/apikeys/apikeys.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 
@@ -34,6 +35,7 @@ export function createApp(): Express {
   app.use(productsRouter);
   app.use(pricingRouter);
   app.use(shippingRouter);
+  app.use(reportingRouter);
   app.use(apiKeysRouter);
 
   app.use((_req, res) => {

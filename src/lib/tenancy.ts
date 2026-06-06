@@ -60,4 +60,5 @@ export const DIRECT_ORG_MODELS = new Set<string>([
   'UsageCounter',
   'ApiKey',
   'AuditLog',
+  'ReportingRate',
 ]);
