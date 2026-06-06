@@ -1,6 +1,6 @@
 # ADR-0007 — Currency formatting rules
 
-- **Status:** Accepted (S0); formatter + golden-file tests implemented in S3
+- **Status:** Accepted (S0); formatter + golden-file tests **implemented in S3** (`src/lib/currency/format.ts`). Arabic-Indic separators ruled: thousands `٬` (U+066C), decimal `٫` (U+066B).
 - **Context:** Shopify not supporting IQD (prices baked into images) is the founding pain. We own currency display end-to-end and must render every Arab currency + TRY correctly, in Western or Arabic-Indic numerals.
 
 ## Decision
