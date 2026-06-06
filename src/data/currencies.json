@@ -1,0 +1,33 @@
+{
+  "_meta": {
+    "description": "Zaggel currency catalog v1 — owned by us (S0/A5). Formatting rules live here; FX is NEVER applied to displayed prices (L4). decimals reflect practical display (IQD=0 per operator; KWD/BHD/OMR/JOD/TND/LYD=3). numeralStyle is the per-currency DEFAULT; a form may override Arabic-Indic vs western at display time (ADR-0007).",
+    "version": 1
+  },
+  "currencies": [
+    { "code": "IQD", "symbolAr": "د.ع", "symbolEn": "IQD", "nameAr": "دينار عراقي", "nameEn": "Iraqi Dinar", "decimals": 0, "numeralStyle": "arabic", "position": "after" },
+    { "code": "SAR", "symbolAr": "ر.س", "symbolEn": "SAR", "nameAr": "ريال سعودي", "nameEn": "Saudi Riyal", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "AED", "symbolAr": "د.إ", "symbolEn": "AED", "nameAr": "درهم إماراتي", "nameEn": "UAE Dirham", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "KWD", "symbolAr": "د.ك", "symbolEn": "KWD", "nameAr": "دينار كويتي", "nameEn": "Kuwaiti Dinar", "decimals": 3, "numeralStyle": "arabic", "position": "after" },
+    { "code": "BHD", "symbolAr": "د.ب", "symbolEn": "BHD", "nameAr": "دينار بحريني", "nameEn": "Bahraini Dinar", "decimals": 3, "numeralStyle": "arabic", "position": "after" },
+    { "code": "QAR", "symbolAr": "ر.ق", "symbolEn": "QAR", "nameAr": "ريال قطري", "nameEn": "Qatari Riyal", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "OMR", "symbolAr": "ر.ع.", "symbolEn": "OMR", "nameAr": "ريال عماني", "nameEn": "Omani Rial", "decimals": 3, "numeralStyle": "arabic", "position": "after" },
+    { "code": "JOD", "symbolAr": "د.أ", "symbolEn": "JOD", "nameAr": "دينار أردني", "nameEn": "Jordanian Dinar", "decimals": 3, "numeralStyle": "arabic", "position": "after" },
+    { "code": "EGP", "symbolAr": "ج.م", "symbolEn": "EGP", "nameAr": "جنيه مصري", "nameEn": "Egyptian Pound", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "LYD", "symbolAr": "د.ل", "symbolEn": "LYD", "nameAr": "دينار ليبي", "nameEn": "Libyan Dinar", "decimals": 3, "numeralStyle": "arabic", "position": "after" },
+    { "code": "TND", "symbolAr": "د.ت", "symbolEn": "TND", "nameAr": "دينار تونسي", "nameEn": "Tunisian Dinar", "decimals": 3, "numeralStyle": "arabic", "position": "after" },
+    { "code": "DZD", "symbolAr": "د.ج", "symbolEn": "DZD", "nameAr": "دينار جزائري", "nameEn": "Algerian Dinar", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "MAD", "symbolAr": "د.م.", "symbolEn": "MAD", "nameAr": "درهم مغربي", "nameEn": "Moroccan Dirham", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "MRU", "symbolAr": "أ.م", "symbolEn": "MRU", "nameAr": "أوقية موريتانية", "nameEn": "Mauritanian Ouguiya", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "SDG", "symbolAr": "ج.س", "symbolEn": "SDG", "nameAr": "جنيه سوداني", "nameEn": "Sudanese Pound", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "SYP", "symbolAr": "ل.س", "symbolEn": "SYP", "nameAr": "ليرة سورية", "nameEn": "Syrian Pound", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "LBP", "symbolAr": "ل.ل", "symbolEn": "LBP", "nameAr": "ليرة لبنانية", "nameEn": "Lebanese Pound", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "YER", "symbolAr": "ر.ي", "symbolEn": "YER", "nameAr": "ريال يمني", "nameEn": "Yemeni Rial", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "SOS", "symbolAr": "ش.ص", "symbolEn": "Sh.So.", "nameAr": "شلن صومالي", "nameEn": "Somali Shilling", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "DJF", "symbolAr": "ف.ج", "symbolEn": "DJF", "nameAr": "فرنك جيبوتي", "nameEn": "Djiboutian Franc", "decimals": 0, "numeralStyle": "arabic", "position": "after" },
+    { "code": "KMF", "symbolAr": "ف.ق", "symbolEn": "KMF", "nameAr": "فرنك قمري", "nameEn": "Comorian Franc", "decimals": 0, "numeralStyle": "arabic", "position": "after" },
+    { "code": "ILS", "symbolAr": "₪", "symbolEn": "₪", "nameAr": "شيكل", "nameEn": "Israeli New Shekel", "decimals": 2, "numeralStyle": "arabic", "position": "after" },
+    { "code": "TRY", "symbolAr": "₺", "symbolEn": "₺", "nameAr": "ليرة تركية", "nameEn": "Turkish Lira", "decimals": 2, "numeralStyle": "western", "position": "after" },
+    { "code": "USD", "symbolAr": "$", "symbolEn": "$", "nameAr": "دولار أمريكي", "nameEn": "US Dollar", "decimals": 2, "numeralStyle": "western", "position": "before" },
+    { "code": "EUR", "symbolAr": "€", "symbolEn": "€", "nameAr": "يورو", "nameEn": "Euro", "decimals": 2, "numeralStyle": "western", "position": "before" }
+  ]
+}
