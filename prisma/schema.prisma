@@ -1,0 +1,355 @@
+// Zaggel core — Prisma schema v1 (Sprint 0, Phase C).
+// Multi-tenant: every tenant-scoped table carries org_id (directly or via parent),
+// enforced by Prisma middleware (ADR-0001). Single Postgres DB.
+//
+// House rule: NO `prisma migrate deploy`. The committed raw SQL in
+// prisma/migrations/0001_init.sql (IF NOT EXISTS) is applied manually via the
+// Railway Data console; locally use `prisma db push`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------- enums -----------------------------
+
+enum Plan {
+  free
+  pro
+  agency
+}
+
+enum UserRole {
+  owner
+  staff
+  agency
+}
+
+enum Platform {
+  shopify
+  woo
+  salla
+  zid
+  custom
+}
+
+enum StoreStatus {
+  active
+  paused
+  disconnected
+}
+
+enum PricingMode {
+  linked
+  independent
+}
+
+enum FormStatus {
+  draft
+  live
+  archived
+}
+
+enum ProductSource {
+  platform
+  manual
+}
+
+enum NumeralStyle {
+  western // 21,000
+  arabic // ٢١٬٠٠٠ (Arabic-Indic)
+}
+
+enum SymbolPosition {
+  before
+  after
+}
+
+enum OrderStatus {
+  submitted
+  wa_confirmed
+  shipped
+  delivered
+  refused
+  cancelled
+}
+
+enum EventPlatform {
+  meta
+  tiktok
+  snap
+}
+
+enum OutboxStatus {
+  pending
+  sent
+  failed
+}
+
+enum BlacklistReason {
+  refused
+  troll
+  fraud
+}
+
+// ----------------------------- tenancy roots -----------------------------
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  plan      Plan     @default(free)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users           User[]
+  stores          Store[]
+  blacklistOrigin BlacklistEntry[] @relation("BlacklistSourceOrg")
+
+  @@map("orgs")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  email     String   @unique
+  role      UserRole @default(owner)
+  name      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("users")
+}
+
+model Store {
+  id              String      @id @default(cuid())
+  orgId           String      @map("org_id")
+  platform        Platform
+  domain          String
+  credentialsJson Json?       @map("credentials_json")
+  status          StoreStatus @default(active)
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  forms    Form[]
+  products Product[]
+  orders   Order[]
+
+  @@index([orgId])
+  @@map("stores")
+}
+
+model Form {
+  id          String      @id @default(cuid())
+  storeId     String      @map("store_id")
+  name        String
+  schemaJson  Json?       @map("schema_json")
+  designJson  Json?       @map("design_json")
+  pricingMode PricingMode @default(independent) @map("pricing_mode")
+  status      FormStatus  @default(draft)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  store         Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  formProducts  FormProduct[]
+  shippingRules ShippingRule[]
+  orders        Order[]
+
+  @@index([storeId])
+  @@map("forms")
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  storeId     String        @map("store_id")
+  externalId  String?       @map("external_id")
+  title       String
+  imageUrl    String?       @map("image_url")
+  linkedPrice Decimal?      @map("linked_price") @db.Decimal(18, 3)
+  source      ProductSource @default(manual)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  store        Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  formProducts FormProduct[]
+
+  @@index([storeId])
+  @@map("products")
+}
+
+// Per-form pricing override for a product (Mode B — independent pricing, S3).
+model FormProduct {
+  id                 String   @id @default(cuid())
+  formId             String   @map("form_id")
+  productId          String   @map("product_id")
+  independentPrice   Decimal? @map("independent_price") @db.Decimal(18, 3)
+  independentCurrency String?  @map("independent_currency")
+  compareAtPrice     Decimal? @map("compare_at_price") @db.Decimal(18, 3)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  form     Form      @relation(fields: [formId], references: [id], onDelete: Cascade)
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  currency Currency? @relation(fields: [independentCurrency], references: [code])
+
+  @@unique([formId, productId])
+  @@index([formId]) // approved addition #2
+  @@map("form_products")
+}
+
+// ----------------------------- seeded catalogs (global, not tenant-scoped) -----------------------------
+
+model Currency {
+  code      String         @id // ISO 4217, e.g. IQD, SAR, TRY
+  symbolAr  String         @map("symbol_ar")
+  symbolEn  String         @map("symbol_en")
+  nameAr    String         @map("name_ar")
+  nameEn    String         @map("name_en")
+  decimals  Int            @default(2)
+  numeralStyle NumeralStyle @default(western) @map("numeral_style")
+  position  SymbolPosition @default(after)
+
+  formProducts  FormProduct[]
+  shippingRules ShippingRule[]
+
+  @@map("currencies")
+}
+
+model Governorate {
+  id          String   @id @default(cuid())
+  countryCode String   @map("country_code") // ISO 3166-1 alpha-2
+  iso3166_2   String?  @map("iso_3166_2") // ISO 3166-2 subdivision code
+  nameAr      String   @map("name_ar")
+  nameEn      String   @map("name_en")
+  sort        Int      @default(0)
+
+  shippingRules ShippingRule[]
+  orders        Order[]
+
+  @@unique([countryCode, iso3166_2])
+  @@index([countryCode])
+  @@map("governorates")
+}
+
+model ShippingRule {
+  id            String   @id @default(cuid())
+  formId        String   @map("form_id")
+  governorateId String   @map("governorate_id")
+  fee           Decimal  @db.Decimal(18, 3)
+  currency      String
+  etaText       String?  @map("eta_text")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  form        Form        @relation(fields: [formId], references: [id], onDelete: Cascade)
+  governorate Governorate @relation(fields: [governorateId], references: [id])
+  currencyRef Currency    @relation(fields: [currency], references: [code])
+
+  @@unique([formId, governorateId])
+  @@index([formId])
+  @@map("shipping_rules")
+}
+
+// ----------------------------- orders & downstream -----------------------------
+
+model Order {
+  id            String      @id @default(cuid())
+  formId        String      @map("form_id")
+  storeId       String      @map("store_id")
+  status        OrderStatus @default(submitted)
+
+  customerName String  @map("customer_name")
+  phoneE164    String  @map("phone_e164")
+  governorateId String? @map("governorate_id")
+  addressText  String? @map("address_text")
+  landmarkText String? @map("landmark_text")
+
+  itemsJson Json @map("items_json")
+
+  // Accounting integrity (S3): what the customer SAW vs the store mapping.
+  displayPrice    Decimal  @map("display_price") @db.Decimal(18, 3)
+  displayCurrency String   @map("display_currency")
+  storePrice      Decimal? @map("store_price") @db.Decimal(18, 3)
+  storeCurrency   String?  @map("store_currency")
+
+  // Attribution (consumed in S5).
+  utmSource   String? @map("utm_source")
+  utmMedium   String? @map("utm_medium")
+  utmCampaign String? @map("utm_campaign")
+  utmTerm     String? @map("utm_term")
+  utmContent  String? @map("utm_content")
+  clickIdFbc  String? @map("click_id_fbc")
+  clickIdTtclid String? @map("click_id_ttclid")
+
+  riskScore         Int      @default(0) @map("risk_score")
+  statusHistoryJson Json?    @map("status_history_json")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  form           Form            @relation(fields: [formId], references: [id])
+  store          Store           @relation(fields: [storeId], references: [id])
+  governorate    Governorate?    @relation(fields: [governorateId], references: [id])
+  events         EventOutbox[]
+  waConversation WaConversation?
+
+  @@index([formId, status]) // approved addition #2
+  @@index([phoneE164]) // approved addition #2
+  @@index([storeId])
+  @@map("orders")
+}
+
+model EventOutbox {
+  id             String        @id @default(cuid())
+  orderId        String        @map("order_id")
+  platform       EventPlatform
+  eventName      String        @map("event_name")
+  payloadJson    Json          @map("payload_json")
+  status         OutboxStatus  @default(pending)
+  attempts       Int           @default(0)
+  idempotencyKey String        @unique @map("idempotency_key") // approved addition #1 (ADR-0005)
+  sentAt         DateTime?     @map("sent_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([orderId])
+  @@map("events_outbox")
+}
+
+// Cross-org by design (hashed, contribute-to-consume — ADR-0004 / L7). Not org-scoped on read.
+model BlacklistEntry {
+  id          String          @id @default(cuid())
+  phoneHash   String          @map("phone_hash") // SHA-256(E.164 + pepper)
+  reason      BlacklistReason
+  sourceOrgId String          @map("source_org_id")
+  confidence  Int             @default(1)
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  sourceOrg Org @relation("BlacklistSourceOrg", fields: [sourceOrgId], references: [id], onDelete: Cascade)
+
+  @@index([phoneHash]) // approved addition #2
+  @@map("blacklist_entries")
+}
+
+model WaConversation {
+  id            String    @id @default(cuid())
+  orderId       String    @unique @map("order_id")
+  waId          String    @map("wa_id")
+  state         String
+  lastMessageAt DateTime? @map("last_message_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("wa_conversations")
+}
