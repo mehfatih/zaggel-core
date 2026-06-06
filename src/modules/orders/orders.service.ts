@@ -10,6 +10,14 @@ import { prisma } from '../../lib/prisma.js';
 import { transition, IllegalTransitionError, type TransitionOptions } from '../../lib/orders/state-machine.js';
 import { incrementUsage } from '../../lib/entitlements/service.js';
 import { conflict, notFound } from '../../lib/http/errors.js';
+import { emitOrderEvent, type OrderEventName } from '../../lib/webhooks/dispatch.js';
+
+// Order status → outbound webhook event (only the rungs subscribers care about).
+const STATUS_EVENT: Partial<Record<OrderStatus, OrderEventName>> = {
+  wa_confirmed: 'order.confirmed',
+  delivered: 'order.delivered',
+  refused: 'order.refused',
+};
 
 /** Orders are nested-tenant: scoped through their store's org_id (ADR-0001). */
 export const orderOrgScope = (orgId: string) => ({ store: { orgId } });
@@ -45,6 +53,10 @@ export async function transitionOrder(
 
   // Billing signal: the per-confirmed-order fee (L8) counts confirmations.
   if (to === 'wa_confirmed') await incrementUsage(orgId, 'wa_confirmed');
+
+  // Outbound webhook for the subscribed rungs (best-effort, never throws here).
+  const event = STATUS_EVENT[to];
+  if (event) await emitOrderEvent(orgId, event, updated);
 
   return updated;
 }

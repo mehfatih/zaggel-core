@@ -15,6 +15,7 @@ import { apiKeysRouter } from './modules/apikeys/apikeys.routes.js';
 import { ordersRouter } from './modules/orders/orders.routes.js';
 import { waRouter } from './modules/wa/wa.routes.js';
 import { waWebhookRouter } from './modules/wa/wa.webhook.routes.js';
+import { webhooksRouter } from './modules/webhooks/webhooks.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 
 export function createApp(): Express {
@@ -43,6 +44,7 @@ export function createApp(): Express {
   app.use(apiKeysRouter);
   app.use(ordersRouter);
   app.use(waRouter);
+  app.use(webhooksRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ ok: false, error: 'not_found' });
