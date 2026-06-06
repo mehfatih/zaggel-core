@@ -18,5 +18,6 @@ export const unauthorized = (msg = 'unauthorized'): HttpError => new HttpError(4
 export const forbidden = (msg = 'forbidden', details?: unknown): HttpError =>
   new HttpError(403, 'forbidden', msg, details);
 export const notFound = (msg = 'not_found'): HttpError => new HttpError(404, 'not_found', msg);
-export const conflict = (msg = 'conflict'): HttpError => new HttpError(409, 'conflict', msg);
+export const conflict = (msg = 'conflict', details?: unknown): HttpError =>
+  new HttpError(409, 'conflict', msg, details);
 export const tooMany = (msg = 'rate_limited'): HttpError => new HttpError(429, 'rate_limited', msg);
