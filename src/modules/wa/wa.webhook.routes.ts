@@ -3,8 +3,9 @@
 //   POST — inbound messages/replies. Resolves the org from the receiving phone
 //          number id, then processes each message in that org's tenant context.
 //
-// We ACK 200 immediately (Meta retries non-2xx and disables slow endpoints) and
-// process best-effort; idempotency (ADR-0005 spirit) lives in processInboundMessage.
+// Payloads are tiny and processing is a handful of queries, so we process THEN
+// ACK 200 (well within Meta's timeout) — simpler and loses no events on restart.
+// Idempotency (ADR-0005 spirit) lives in processInboundMessage.
 
 import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
@@ -58,10 +59,9 @@ waWebhookRouter.post(
   WEBHOOK_PATH,
   asyncHandler(async (req, res) => {
     const changes = parseWebhook(req.body);
-    // ACK first; then process (payloads are small and synchronous here in v1).
-    res.status(200).json({ ok: true });
     for (const change of changes) {
       await handleChange(change);
     }
+    res.status(200).json({ ok: true });
   }),
 );
