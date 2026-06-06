@@ -51,6 +51,7 @@ enum PricingMode {
 enum FormStatus {
   draft
   live
+  paused
   archived
 }
 
@@ -96,6 +97,20 @@ enum BlacklistReason {
   fraud
 }
 
+enum SubscriptionStatus {
+  active
+  past_due
+  canceled
+}
+
+enum SubscriptionSource {
+  shopify
+  salla
+  zid
+  woo
+  manual
+}
+
 // ----------------------------- tenancy roots -----------------------------
 
 model Org {
@@ -108,20 +123,26 @@ model Org {
   users           User[]
   stores          Store[]
   blacklistOrigin BlacklistEntry[] @relation("BlacklistSourceOrg")
+  subscriptions   Subscription[]
+  usageCounters   UsageCounter[]
+  apiKeys         ApiKey[]
+  auditLogs       AuditLog[]
 
   @@map("orgs")
 }
 
 model User {
-  id        String   @id @default(cuid())
-  orgId     String   @map("org_id")
-  email     String   @unique
-  role      UserRole @default(owner)
-  name      String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  email        String   @unique
+  passwordHash String?  @map("password_hash") // null for platform-session users (S7)
+  role         UserRole @default(owner)
+  name         String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org           Org            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
 
   @@index([orgId])
   @@map("users")
@@ -132,8 +153,11 @@ model Store {
   orgId           String      @map("org_id")
   platform        Platform
   domain          String
-  credentialsJson Json?       @map("credentials_json")
+  credentialsJson Json?       @map("credentials_json") // libsodium sealed box (ADR/S1 vault)
   status          StoreStatus @default(active)
+  verificationToken  String?   @map("verification_token")
+  verificationMethod String?   @map("verification_method") // dns_txt | meta_tag
+  verifiedAt         DateTime? @map("verified_at")
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
@@ -287,6 +311,8 @@ model Order {
   utmContent  String? @map("utm_content")
   clickIdFbc  String? @map("click_id_fbc")
   clickIdTtclid String? @map("click_id_ttclid")
+  ip          String?
+  userAgent   String? @map("user_agent")
 
   riskScore         Int      @default(0) @map("risk_score")
   statusHistoryJson Json?    @map("status_history_json")
@@ -352,4 +378,101 @@ model WaConversation {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@map("wa_conversations")
+}
+
+// ----------------------------- entitlements (S1) -----------------------------
+
+// Plan catalog — seeded from the PLAN_MATRIX single source of truth.
+// Global (not org-scoped); `code` is the join key used by subscriptions.
+model PricingPlan {
+  code         String   @id // free | growth | pro | agency
+  name         String
+  featuresJson Json     @map("features_json")
+  limitsJson   Json     @map("limits_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id               String             @id @default(cuid())
+  orgId            String             @map("org_id")
+  planCode         String             @map("plan_code")
+  status           SubscriptionStatus @default(active)
+  source           SubscriptionSource @default(manual)
+  currentPeriodEnd DateTime?          @map("current_period_end")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  org  Org         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  plan PricingPlan @relation(fields: [planCode], references: [code])
+
+  @@index([orgId])
+  @@map("subscriptions")
+}
+
+model UsageCounter {
+  id     String @id @default(cuid())
+  orgId  String @map("org_id")
+  metric String // e.g. orders_submitted | wa_confirmed
+  period String // YYYY-MM
+  count  Int    @default(0)
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, metric, period])
+  @@index([orgId])
+  @@map("usage_counters")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash") // sha-256 of the refresh token
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  orgId      String    @map("org_id")
+  name       String
+  prefix     String // first chars, shown in UI
+  keyHash    String    @map("key_hash") // sha-256(key + pepper)
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([keyHash])
+  @@map("api_keys")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  orgId      String   @map("org_id")
+  userId     String?  @map("user_id")
+  action     String
+  targetType String?  @map("target_type")
+  targetId   String?  @map("target_id")
+  metaJson   Json?    @map("meta_json")
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("audit_logs")
 }
