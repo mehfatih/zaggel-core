@@ -57,10 +57,10 @@ interface ConfirmContext {
  * Send `order_confirm` for a freshly submitted order. Idempotent-ish: re-sending
  * is harmless (we don't dedupe here; the caller fires it once on submit).
  */
-export async function sendOrderConfirm(orgId: string, order: Order, ctx: ConfirmContext): Promise<void> {
+export async function sendOrderConfirm(orgId: string, order: Order, ctx: ConfirmContext): Promise<boolean> {
   try {
     const conv = await ensureConversation(order);
-    if (!canAutomate(conv)) return;
+    if (!canAutomate(conv)) return true; // intentionally skipped — not a failure
 
     const transport: WaTransport = getTransport(await resolveWaCreds(orgId));
     const bodyParams = [
@@ -76,8 +76,9 @@ export async function sendOrderConfirm(orgId: string, order: Order, ctx: Confirm
       where: { id: conv.id },
       data: { state: 'awaiting_confirm', lastMessageAt: new Date() },
     });
+    return true;
   } catch {
-    // best-effort — never throw into the order path
+    return false; // best-effort — never throw into the order path
   }
 }
 

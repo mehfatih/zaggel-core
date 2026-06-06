@@ -14,6 +14,7 @@ import { markLeadsRecovered } from '../../lib/wa/recovery.js';
 import { getWaSettings } from '../../lib/wa/settings.js';
 import { generateOtp, verifyOtp } from '../../lib/wa/otp.js';
 import { emitOrderEvent } from '../../lib/webhooks/dispatch.js';
+import { notifyMerchant } from '../../lib/notify/notifier.js';
 
 /** Whether a form requires a WhatsApp OTP before accepting an order (S4). */
 function formRequiresOtp(form: { schemaJson: unknown }): boolean {
@@ -218,8 +219,22 @@ publicRouter.post(
       // WhatsApp auto-confirmation (S4). Best-effort; soft-blocked orders skip the
       // send (the sale is still recorded — L10 — but downstream automation pauses).
       if (!limit.exceeded) {
-        await sendOrderConfirm(orgId, order, { brand: store.domain, governorate: governorateName });
+        const sent = await sendOrderConfirm(orgId, order, { brand: store.domain, governorate: governorateName });
+        if (!sent) {
+          await notifyMerchant(orgId, {
+            kind: 'confirmation_failure',
+            title: 'تعذّر إرسال رسالة تأكيد واتساب',
+            data: { orderId: order.id, phone: order.phoneE164 },
+          });
+        }
       }
+
+      // Merchant alert: new order (best-effort).
+      await notifyMerchant(orgId, {
+        kind: 'new_order',
+        title: 'طلب جديد',
+        data: { orderId: order.id, customer: order.customerName, total: order.displayPrice.toString(), currency: order.displayCurrency },
+      });
 
       return { order, softBlock: limit.exceeded };
     });
