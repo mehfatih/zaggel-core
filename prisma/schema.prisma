@@ -127,6 +127,7 @@ model Org {
   usageCounters   UsageCounter[]
   apiKeys         ApiKey[]
   auditLogs       AuditLog[]
+  reportingRates  ReportingRate[]
 
   @@map("orgs")
 }
@@ -176,6 +177,7 @@ model Form {
   name        String
   schemaJson  Json?       @map("schema_json")
   designJson  Json?       @map("design_json")
+  pricingJson Json?       @map("pricing_json") // form-level pricing settings (S3): display currency, numeral override, free-ship threshold, Mode-A display rate
   pricingMode PricingMode @default(independent) @map("pricing_mode")
   status      FormStatus  @default(draft)
   createdAt   DateTime    @default(now()) @map("created_at")
@@ -240,10 +242,34 @@ model Currency {
   numeralStyle NumeralStyle @default(western) @map("numeral_style")
   position  SymbolPosition @default(after)
 
-  formProducts  FormProduct[]
-  shippingRules ShippingRule[]
+  formProducts       FormProduct[]
+  shippingRules      ShippingRule[]
+  reportingRatesFrom ReportingRate[] @relation("RateFrom")
+  reportingRatesTo   ReportingRate[] @relation("RateTo")
 
   @@map("currencies")
+}
+
+// Merchant-set, DATED FX rates for REPORTING conversion only (S3, scope §3).
+// NEVER applied to displayed prices (L4) — display is always the authored pair.
+// Reporting/analytics dashboards consume this in S5; S3 ships the table + helper.
+model ReportingRate {
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  fromCurrency String   @map("from_currency")
+  toCurrency   String   @map("to_currency")
+  rate         Decimal  @db.Decimal(18, 8) // 1 fromCurrency = rate × toCurrency
+  effectiveOn  DateTime @map("effective_on") @db.Date
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  org  Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  from Currency @relation("RateFrom", fields: [fromCurrency], references: [code])
+  to   Currency @relation("RateTo", fields: [toCurrency], references: [code])
+
+  @@unique([orgId, fromCurrency, toCurrency, effectiveOn])
+  @@index([orgId])
+  @@map("reporting_rates")
 }
 
 model Governorate {
