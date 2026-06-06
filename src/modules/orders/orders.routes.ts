@@ -12,6 +12,7 @@ import { notFound } from '../../lib/http/errors.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
 import { writeAudit } from '../../lib/audit.js';
 import { formatOrderTotal, orderItemsSummary } from '../../lib/orders/format.js';
+import { sendShippedUpdate } from '../../lib/wa/messages.js';
 import { transitionOrder, orderOrgScope } from './orders.service.js';
 
 export const ordersRouter = Router();
@@ -116,6 +117,44 @@ ordersRouter.post(
       targetType: 'order',
       targetId: order.id,
       meta: { to: body.to },
+      ip: req.ip,
+    });
+    res.json({ ok: true, order });
+  }),
+);
+
+// Delivery-status ingestion (scope §4): the manual status editor AND a generic
+// courier-friendly endpoint. `shipped` optionally carries courier + ETA and fires
+// the shipped_update WA template; delivered/refused queue the outbox event (via
+// the transition service) for the S5 moat.
+const deliveryStatusSchema = z.object({
+  status: z.enum(['shipped', 'delivered', 'refused']),
+  courier: z.string().max(120).optional(),
+  eta: z.string().max(120).optional(),
+});
+
+ordersRouter.post(
+  '/v1/orders/:id/delivery-status',
+  validateBody(deliveryStatusSchema),
+  asyncHandler(async (req, res) => {
+    const orgId = req.auth!.orgId;
+    const body = req.body as z.infer<typeof deliveryStatusSchema>;
+    const order = await transitionOrder(orgId, req.params.id!, body.status, {
+      by: req.auth!.userId,
+      reason: body.courier ? `courier:${body.courier}` : 'delivery-status',
+    });
+
+    if (body.status === 'shipped' && (body.courier || body.eta)) {
+      const store = await prisma.store.findFirst({ where: { id: order.storeId } });
+      await sendShippedUpdate(orgId, order, store?.domain ?? '', body.courier ?? '', body.eta ?? '');
+    }
+
+    await writeAudit({
+      action: 'order.delivery_status',
+      userId: req.auth!.userId,
+      targetType: 'order',
+      targetId: order.id,
+      meta: { status: body.status, courier: body.courier, eta: body.eta },
       ip: req.ip,
     });
     res.json({ ok: true, order });
