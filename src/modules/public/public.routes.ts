@@ -9,6 +9,9 @@ import { notFound, tooMany } from '../../lib/http/errors.js';
 import { publicOrderLimiter } from '../../lib/ratelimit.js';
 import { incrementUsage, checkLimit } from '../../lib/entitlements/service.js';
 import { buildPricingSnapshot, priceOrder, resolveFormCurrency } from '../../lib/pricing/engine.js';
+import { sendOrderConfirm } from '../../lib/wa/messages.js';
+import { markLeadsRecovered } from '../../lib/wa/recovery.js';
+import { getWaSettings } from '../../lib/wa/settings.js';
 
 export const publicRouter = Router();
 
@@ -147,11 +150,13 @@ publicRouter.post(
 
       // Resolve governorate (global catalog) by id or ISO 3166-2 code.
       let governorateId: string | null = null;
+      let governorateName = '';
       if (body.governorate) {
         const gov = await prisma.governorate.findFirst({
           where: { OR: [{ id: body.governorate }, { iso3166_2: body.governorate }] },
         });
         governorateId = gov?.id ?? null;
+        governorateName = gov?.nameAr ?? '';
       }
 
       // Price the order against the form's snapshot — display pair is the PROMISE
@@ -189,11 +194,64 @@ publicRouter.post(
 
       await incrementUsage(orgId, 'orders_submitted');
       const limit = await checkLimit(orgId, 'orders_per_month');
+
+      // Close any pending recovery lead for this phone+form — they ordered.
+      await markLeadsRecovered(form.id, body.phone, order.id);
+
+      // WhatsApp auto-confirmation (S4). Best-effort; soft-blocked orders skip the
+      // send (the sale is still recorded — L10 — but downstream automation pauses).
+      if (!limit.exceeded) {
+        await sendOrderConfirm(orgId, order, { brand: store.domain, governorate: governorateName });
+      }
+
       return { order, softBlock: limit.exceeded };
     });
 
     if ('rateLimited' in result) throw tooMany('velocity_limit');
     // Soft-block: the sale is NEVER refused; downstream events/WA pause (later sprints).
     res.status(201).json({ ok: true, ref: result.order.id, softBlock: result.softBlock });
+  }),
+);
+
+// --- Abandoned-form start (SDK `zaggel:start`, S4 scope §2) ---
+// The SDK fires this once the phone field is valid. We persist a lead with a
+// `send_after`; the recovery sweeper messages it if no order arrives in time.
+const startSchema = z.object({ phone: z.string().min(3).max(32) });
+
+publicRouter.options('/public/v1/forms/:formId/start', asyncHandler(async (req, res) => {
+  const resolved = await resolveForm(req.params.formId!);
+  if (resolved) applyCors(req, res, resolved.store);
+  res.status(204).end();
+}));
+
+publicRouter.post(
+  '/public/v1/forms/:formId/start',
+  publicOrderLimiter,
+  validateBody(startSchema),
+  asyncHandler(async (req, res) => {
+    const resolved = await resolveForm(req.params.formId!);
+    if (!resolved || !resolved.form) throw notFound('form_not_found');
+    const { form, store, orgId } = resolved;
+    applyCors(req, res, store);
+    const { phone } = req.body as z.infer<typeof startSchema>;
+
+    await runWithOrg(orgId, async () => {
+      const settings = await getWaSettings(orgId);
+      if (settings && !settings.recoveryEnabled) return; // recovery off → don't track
+      const delayMinutes = settings?.recoveryDelayMinutes ?? 30;
+      const sendAfter = new Date(Date.now() + delayMinutes * 60 * 1000);
+
+      // One active lead per phone+form; refresh its timer if it already exists.
+      const existing = await prisma.abandonedLead.findFirst({
+        where: { formId: form.id, phoneE164: phone, recovered: false },
+      });
+      if (existing) {
+        await prisma.abandonedLead.updateMany({ where: { id: existing.id }, data: { sendAfter } });
+      } else {
+        await prisma.abandonedLead.create({ data: { formId: form.id, storeId: store.id, phoneE164: phone, sendAfter } });
+      }
+    });
+
+    res.status(202).json({ ok: true });
   }),
 );
