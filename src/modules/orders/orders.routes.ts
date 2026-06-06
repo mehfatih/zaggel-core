@@ -213,7 +213,7 @@ ordersRouter.get(
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="orders.csv"');
-    res.send(`﻿${lines.join('\r\n')}`); // BOM so Excel reads Arabic UTF-8
+    res.send(`\uFEFF${lines.join('\r\n')}`); // BOM so Excel reads Arabic UTF-8
   }),
 );
 
