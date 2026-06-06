@@ -123,6 +123,68 @@ export function buildLadder(unitPrice: number, currency: string, numeralStyle?: 
   });
 }
 
+// ----------------------------- order pricing (intake) -----------------------------
+
+export interface OrderItemInput {
+  productId: string;
+  qty: number;
+}
+
+export interface PricedLine {
+  productId: string;
+  title: string;
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export interface PricedOrder {
+  currency: string;
+  lineItems: PricedLine[];
+  subtotal: number;
+  shipping: number;
+  total: number;
+  freeShippingApplied: boolean;
+}
+
+/**
+ * Price a submitted order against the form's snapshot. With no items, a
+ * single-product form defaults to 1× that product (the common landing case).
+ * Items not present in the snapshot are dropped (can't price what isn't offered).
+ */
+export function priceOrder(snapshot: PricingSnapshot, items: OrderItemInput[], governorateId: string | null): PricedOrder {
+  const effective =
+    items.length > 0
+      ? items
+      : snapshot.products.length === 1
+        ? [{ productId: snapshot.products[0]!.productId, qty: 1 }]
+        : [];
+
+  const lineItems: PricedLine[] = [];
+  for (const it of effective) {
+    const p = snapshot.products.find((sp) => sp.productId === it.productId);
+    if (!p) continue;
+    lineItems.push({ productId: p.productId, title: p.title, qty: it.qty, unitPrice: p.price, lineTotal: p.price * it.qty });
+  }
+
+  const shippingFee = governorateId ? (snapshot.shipping.find((s) => s.governorateId === governorateId)?.fee ?? 0) : 0;
+  const totals = computeTotals({
+    currency: snapshot.currency,
+    items: lineItems.map((l) => ({ price: l.unitPrice, qty: l.qty })),
+    shippingFee,
+    freeShippingThreshold: snapshot.freeShippingThreshold,
+  });
+
+  return {
+    currency: snapshot.currency,
+    lineItems,
+    subtotal: totals.subtotal,
+    shipping: totals.shipping,
+    total: totals.total,
+    freeShippingApplied: totals.freeShippingApplied,
+  };
+}
+
 type FormProductWithProduct = FormProduct & { product: Product };
 
 /** Resolve a product's unit price (in the form's display currency) for the active mode. */

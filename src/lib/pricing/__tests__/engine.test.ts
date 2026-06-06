@@ -6,6 +6,8 @@ import {
   resolveFormCurrency,
   readPricingSettings,
   assembleSnapshot,
+  priceOrder,
+  type PricingSnapshot,
 } from '../engine.js';
 
 function makeForm(over: Partial<Form> = {}): Form {
@@ -137,6 +139,44 @@ describe('assembleSnapshot — independent mode (Mode B)', () => {
   it('omits an unpriced product rather than zero-pricing it', () => {
     const snap = assembleSnapshot(makeForm(), [makeFp({ independentPrice: null, product: {} })], []);
     expect(snap.products).toHaveLength(0);
+  });
+});
+
+describe('priceOrder', () => {
+  const snap: PricingSnapshot = {
+    mode: 'independent',
+    currency: 'IQD',
+    numeralStyle: null,
+    products: [
+      { productId: 'p1', title: 'LaserPro', imageUrl: null, price: 21000, compareAtPrice: 29000, formatted: { price: '', compareAt: null }, ladder: [] },
+      { productId: 'p2', title: 'Serum', imageUrl: null, price: 12000, compareAtPrice: null, formatted: { price: '', compareAt: null }, ladder: [] },
+    ],
+    shipping: [{ governorateId: 'gov_bg', fee: 5000, formatted: '', etaText: null }],
+    freeShippingThreshold: null,
+    freeShippingThresholdFormatted: null,
+  };
+
+  it('prices explicit items + governorate shipping', () => {
+    const o = priceOrder(snap, [{ productId: 'p1', qty: 2 }], 'gov_bg');
+    expect(o.subtotal).toBe(42000);
+    expect(o.shipping).toBe(5000);
+    expect(o.total).toBe(47000);
+    expect(o.currency).toBe('IQD');
+    expect(o.lineItems[0]).toMatchObject({ productId: 'p1', qty: 2, unitPrice: 21000, lineTotal: 42000 });
+  });
+
+  it('defaults a single-product form to 1× when no items are sent', () => {
+    const single: PricingSnapshot = { ...snap, products: [snap.products[0]!] };
+    const o = priceOrder(single, [], 'gov_bg');
+    expect(o.lineItems).toHaveLength(1);
+    expect(o.total).toBe(26000);
+  });
+
+  it('drops items not present in the snapshot, and charges no shipping without a governorate', () => {
+    const o = priceOrder(snap, [{ productId: 'ghost', qty: 9 }, { productId: 'p2', qty: 1 }], null);
+    expect(o.lineItems).toHaveLength(1);
+    expect(o.subtotal).toBe(12000);
+    expect(o.shipping).toBe(0);
   });
 });
 

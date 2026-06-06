@@ -8,14 +8,9 @@ import { asyncHandler, validateBody } from '../../lib/http/handler.js';
 import { notFound, tooMany } from '../../lib/http/errors.js';
 import { publicOrderLimiter } from '../../lib/ratelimit.js';
 import { incrementUsage, checkLimit } from '../../lib/entitlements/service.js';
+import { buildPricingSnapshot, priceOrder, resolveFormCurrency } from '../../lib/pricing/engine.js';
 
 export const publicRouter = Router();
-
-// Fallback display currency by country until the S3 pricing engine fills snapshots.
-const CURRENCY_BY_COUNTRY: Record<string, string> = {
-  IQ: 'IQD', SA: 'SAR', AE: 'AED', EG: 'EGP', KW: 'KWD', QA: 'QAR', BH: 'BHD',
-  OM: 'OMR', JO: 'JOD', TR: 'TRY',
-};
 
 interface ResolvedForm {
   form: Awaited<ReturnType<typeof prisma.form.findFirst>>;
@@ -49,11 +44,6 @@ function applyCors(req: { headers: Record<string, unknown> }, res: import('expre
   }
 }
 
-function countryOf(form: NonNullable<ResolvedForm['form']>): string {
-  const locale = (form.schemaJson as { locale?: string } | null)?.locale ?? 'ar-IQ';
-  return locale.split('-')[1] ?? 'IQ';
-}
-
 // --- Manifest (consumed by the SDK in S2) ---
 publicRouter.options('/public/v1/forms/:formId/manifest', asyncHandler(async (req, res) => {
   const resolved = await resolveForm(req.params.formId!);
@@ -68,6 +58,9 @@ publicRouter.get(
     if (!resolved || !resolved.form) throw notFound('form_not_found');
     const { form, store } = resolved;
 
+    // Pricing snapshot is built in system context (public route has no org binding).
+    const pricing = await runAsSystem(() => buildPricingSnapshot(form.id));
+
     const manifest = {
       version: 1,
       formId: form.id,
@@ -76,7 +69,7 @@ publicRouter.get(
       pricingMode: form.pricingMode,
       schema: form.schemaJson,
       design: form.designJson,
-      pricing: null, // filled by the S3 pricing engine
+      pricing, // S3 pricing engine snapshot
       store: { platform: store.platform, domain: store.domain },
       updatedAt: form.updatedAt,
     };
@@ -100,7 +93,8 @@ const orderSchema = z.object({
   governorate: z.string().max(64).optional(), // ISO 3166-2 or governorate id
   address: z.string().max(1000).optional(),
   landmark: z.string().max(300).optional(),
-  items: z.array(z.unknown()).optional(),
+  // Selected line items; a single-product form may omit these (defaults to 1×).
+  items: z.array(z.object({ productId: z.string().min(1), qty: z.coerce.number().int().positive().default(1) })).optional(),
   company: z.string().optional(), // honeypot — must stay empty
   utm: z
     .object({
@@ -160,6 +154,14 @@ publicRouter.post(
         governorateId = gov?.id ?? null;
       }
 
+      // Price the order against the form's snapshot — display pair is the PROMISE
+      // the customer saw (S3 accounting integrity, ADR-0007). Store pair stays null
+      // in v1 (platform-currency mapping arrives with adapters in S7).
+      const snapshot = await buildPricingSnapshot(form.id);
+      const priced = snapshot ? priceOrder(snapshot, body.items ?? [], governorateId) : null;
+      const displayCurrency = snapshot?.currency ?? resolveFormCurrency(form);
+      const displayPrice = priced?.total ?? 0;
+
       const order = await prisma.order.create({
         data: {
           formId: form.id,
@@ -170,10 +172,9 @@ publicRouter.post(
           governorateId,
           addressText: body.address ?? null,
           landmarkText: body.landmark ?? null,
-          itemsJson: (body.items ?? []) as Prisma.InputJsonValue,
-          // Pricing engine is S3 — S1 persists a placeholder; display pair set later.
-          displayPrice: 0,
-          displayCurrency: CURRENCY_BY_COUNTRY[countryOf(form)] ?? 'IQD',
+          itemsJson: (priced?.lineItems ?? body.items ?? []) as unknown as Prisma.InputJsonValue,
+          displayPrice,
+          displayCurrency,
           utmSource: body.utm?.source ?? null,
           utmMedium: body.utm?.medium ?? null,
           utmCampaign: body.utm?.campaign ?? null,

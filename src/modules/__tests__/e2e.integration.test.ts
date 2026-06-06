@@ -74,7 +74,8 @@ describe.skipIf(!hasDb)('S1 e2e', () => {
   it('serves the manifest with an ETag and honours If-None-Match (caching)', async () => {
     const first = await request(app).get(`/public/v1/forms/${aFormId}/manifest`);
     expect(first.status).toBe(200);
-    expect(first.body.manifest.pricing).toBeNull(); // S3 fills pricing
+    // S3 fills pricing: a productless form yields an empty IQD snapshot (not null).
+    expect(first.body.manifest.pricing).toMatchObject({ currency: 'IQD', products: [], shipping: [] });
     const etag = first.headers.etag as string;
     expect(etag).toBeTruthy();
 
