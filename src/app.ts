@@ -12,6 +12,7 @@ import { pricingRouter } from './modules/pricing/pricing.routes.js';
 import { shippingRouter } from './modules/shipping/shipping.routes.js';
 import { reportingRouter } from './modules/reporting/reporting.routes.js';
 import { apiKeysRouter } from './modules/apikeys/apikeys.routes.js';
+import { ordersRouter } from './modules/orders/orders.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 
 export function createApp(): Express {
@@ -37,6 +38,7 @@ export function createApp(): Express {
   app.use(shippingRouter);
   app.use(reportingRouter);
   app.use(apiKeysRouter);
+  app.use(ordersRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ ok: false, error: 'not_found' });
