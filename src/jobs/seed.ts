@@ -5,6 +5,7 @@
 
 import { createRequire } from 'node:module';
 import { prisma } from '../lib/prisma.js';
+import { seedPlans } from '../lib/entitlements/service.js';
 import type { NumeralStyle, SymbolPosition } from '@prisma/client';
 
 const require = createRequire(import.meta.url);
@@ -57,8 +58,9 @@ async function seedGovernorates(): Promise<number> {
 async function main(): Promise<void> {
   const currencies = await seedCurrencies();
   const governorates = await seedGovernorates();
+  const plans = await seedPlans();
   // eslint-disable-next-line no-console
-  console.log(`Seed complete: ${currencies} currencies, ${governorates} governorates.`);
+  console.log(`Seed complete: ${currencies} currencies, ${governorates} governorates, ${plans} plans.`);
 }
 
 main()
