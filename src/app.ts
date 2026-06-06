@@ -14,6 +14,7 @@ import { reportingRouter } from './modules/reporting/reporting.routes.js';
 import { apiKeysRouter } from './modules/apikeys/apikeys.routes.js';
 import { ordersRouter } from './modules/orders/orders.routes.js';
 import { waRouter } from './modules/wa/wa.routes.js';
+import { waWebhookRouter } from './modules/wa/wa.webhook.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 
 export function createApp(): Express {
@@ -26,6 +27,7 @@ export function createApp(): Express {
   // Public SDK surface (/public/*) — registered BEFORE the authed routers, whose
   // router-level requireAuth would otherwise intercept every request. Per-form
   // CORS is handled inside the router.
+  app.use(waWebhookRouter); // Meta calls this directly (no auth)
   app.use(publicRouter);
 
   // Authed admin API (/v1/*) — CORS locked to the admin origin(s).
