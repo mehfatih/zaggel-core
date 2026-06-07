@@ -83,6 +83,66 @@ describe.skipIf(!hasDb)('S1 e2e', () => {
     expect(second.status).toBe(304);
   });
 
+  it('embeds the geo block + rotating submit token in the manifest (CR1/CR3)', async () => {
+    const res = await request(app).get(`/public/v1/forms/${aFormId}/manifest`);
+    expect(res.status).toBe(200);
+    // Default template wires governorates:IQ → IQ is resolved with a non-empty list.
+    expect(res.body.manifest.geo.countries).toContain('IQ');
+    expect(Array.isArray(res.body.manifest.geo.governorates.IQ)).toBe(true);
+    expect(res.body.manifest.geo.governorates.IQ.length).toBeGreaterThan(0);
+    expect(res.body.manifest.geo.governorates.IQ[0]).toHaveProperty('iso3166_2');
+    expect(res.body.manifest.submitToken).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('serves the public geo catalog by country (CR1)', async () => {
+    const res = await request(app).get('/public/v1/geo/governorates?country=iq');
+    expect(res.status).toBe(200);
+    expect(res.body.country).toBe('IQ');
+    expect(res.body.governorates.length).toBeGreaterThan(0);
+    const bad = await request(app).get('/public/v1/geo/governorates?country=ZZZ');
+    expect(bad.status).toBe(400);
+  });
+
+  it('validates the submit token only when present (CR3 soft posture)', async () => {
+    const manifest = await request(app).get(`/public/v1/forms/${aFormId}/manifest`);
+    const token = manifest.body.manifest.submitToken as string;
+
+    // Valid token → accepted.
+    const ok = await request(app)
+      .post(`/public/v1/forms/${aFormId}/orders`)
+      .send({ name: 'برمز صحيح', phone: `+96478${rid}`, governorate: 'IQ-BG', address: 'بغداد', submitToken: token });
+    expect(ok.status).toBe(201);
+
+    // Invalid token → rejected.
+    const bad = await request(app)
+      .post(`/public/v1/forms/${aFormId}/orders`)
+      .send({ name: 'برمز خاطئ', phone: `+96479${rid}`, governorate: 'IQ-BG', address: 'بغداد', submitToken: 'deadbeef' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.message).toBe('submit_token_invalid');
+
+    // No token → still accepted (back-compat with old SDK builds).
+    const none = await request(app)
+      .post(`/public/v1/forms/${aFormId}/orders`)
+      .send({ name: 'بدون رمز', phone: `+96476${rid}`, governorate: 'IQ-BG', address: 'بغداد' });
+    expect(none.status).toBe(201);
+  });
+
+  it('can set then RESET designJson to null via PATCH (issue #1)', async () => {
+    const set = await request(app)
+      .patch(`/v1/forms/${aFormId}`)
+      .set('Authorization', `Bearer ${a.token}`)
+      .send({ designJson: { theme: 'levana' } });
+    expect(set.status).toBe(200);
+    expect(set.body.form.designJson).toMatchObject({ theme: 'levana' });
+
+    const reset = await request(app)
+      .patch(`/v1/forms/${aFormId}`)
+      .set('Authorization', `Bearer ${a.token}`)
+      .send({ designJson: null });
+    expect(reset.status).toBe(200);
+    expect(reset.body.form.designJson).toBeNull();
+  });
+
   it('accepts a public order and returns a ref', async () => {
     const res = await request(app)
       .post(`/public/v1/forms/${aFormId}/orders`)

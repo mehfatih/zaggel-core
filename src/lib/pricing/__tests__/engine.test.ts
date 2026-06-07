@@ -140,6 +140,17 @@ describe('assembleSnapshot — independent mode (Mode B)', () => {
     const snap = assembleSnapshot(makeForm(), [makeFp({ independentPrice: null, product: {} })], []);
     expect(snap.products).toHaveLength(0);
   });
+
+  it('passes through the governorate iso3166_2 on shipping (CR2)', () => {
+    const ship = { ...makeShip({ fee: 5000 as never }), governorate: { iso3166_2: 'IQ-BG' } };
+    const snap = assembleSnapshot(makeForm(), [], [ship]);
+    expect(snap.shipping[0]!.iso3166_2).toBe('IQ-BG');
+  });
+
+  it('defaults iso3166_2 to null when the governorate relation is absent', () => {
+    const snap = assembleSnapshot(makeForm(), [], [makeShip({ fee: 5000 as never })]);
+    expect(snap.shipping[0]!.iso3166_2).toBeNull();
+  });
 });
 
 describe('priceOrder', () => {
@@ -151,7 +162,7 @@ describe('priceOrder', () => {
       { productId: 'p1', title: 'LaserPro', imageUrl: null, price: 21000, compareAtPrice: 29000, formatted: { price: '', compareAt: null }, ladder: [] },
       { productId: 'p2', title: 'Serum', imageUrl: null, price: 12000, compareAtPrice: null, formatted: { price: '', compareAt: null }, ladder: [] },
     ],
-    shipping: [{ governorateId: 'gov_bg', fee: 5000, formatted: '', etaText: null }],
+    shipping: [{ governorateId: 'gov_bg', iso3166_2: 'IQ-BG', fee: 5000, formatted: '', etaText: null }],
     freeShippingThreshold: null,
     freeShippingThresholdFormatted: null,
   };
