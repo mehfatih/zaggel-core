@@ -65,4 +65,14 @@ export const env = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+
+  // Shopify adapter (S7, ADR-0016). The API secret signs/verifies App Bridge
+  // session-token JWTs AND webhook HMACs AND backs token exchange — so it's
+  // required in prod once the Shopify app is live, optional in dev (the adapter's
+  // routes simply 503 until configured). `appUrl` is our public base (Railway in
+  // dev) used for the billing return URL + the embedded host check.
+  shopifyApiKey: process.env.SHOPIFY_API_KEY ?? '',
+  shopifyApiSecret: process.env.SHOPIFY_API_SECRET ?? '',
+  shopifyApiVersion: process.env.SHOPIFY_API_VERSION ?? '2025-01',
+  shopifyAppUrl: (process.env.SHOPIFY_APP_URL ?? '').replace(/\/$/, ''),
 } as const;
