@@ -30,7 +30,7 @@
     "cors": "^2.8.6",
     "express": "^4.21.2",
     "express-rate-limit": "^8.5.2",
-    "ioredis": "^5.11.1",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "libsodium-wrappers": "^0.8.4",
     "zod": "^3.24.1"

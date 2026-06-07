@@ -15,6 +15,7 @@ import { Prisma, type Order, type OrderStatus } from '@prisma/client';
 import { prisma } from '../prisma.js';
 import { isSignalBearing, mapRungToEvents } from './ladder.js';
 import { resolveDestinationsForStore } from './destinations.js';
+import { enqueueOutbox } from './queue.js';
 
 /** Snapshot persisted on the outbox row — the value promise at order time (ADR-0009). */
 function buildPayload(order: Order, rung: OrderStatus): Prisma.InputJsonValue {
@@ -46,7 +47,7 @@ export async function queueLadderEvent(order: Order, rung: OrderStatus): Promise
 
     const idempotencyKey = `${order.id}:${dest.platform}:${rung}`;
     try {
-      await prisma.eventOutbox.create({
+      const created = await prisma.eventOutbox.create({
         data: {
           orderId: order.id,
           platform: dest.platform,
@@ -56,6 +57,8 @@ export async function queueLadderEvent(order: Order, rung: OrderStatus): Promise
           nextAttemptAt: new Date(), // due immediately; the dispatcher picks it up
         },
       });
+      // Hand to the dispatcher (no-op without Redis — the sweeper covers it).
+      await enqueueOutbox(created.id);
     } catch (err) {
       // Duplicate rung for this order+platform — already queued, skip.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') continue;

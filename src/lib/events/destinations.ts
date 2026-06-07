@@ -5,8 +5,25 @@
 // accounts. Disabled rows are ignored. Runs in the caller's org context, so the
 // tenancy middleware auto-scopes AdDestination to the org.
 
-import type { AdDestination } from '@prisma/client';
+import type { AdDestination, EventPlatform } from '@prisma/client';
 import { prisma } from '../prisma.js';
+
+/**
+ * Resolve the single effective destination for one (org, store, platform).
+ * EXPLICITLY org-scoped — safe to call in system context (the dispatcher), where
+ * the tenancy middleware does NOT auto-inject org_id and an org-wide (store_id
+ * NULL) match would otherwise leak across tenants. Store row beats org-wide.
+ */
+export async function resolveDestination(
+  orgId: string,
+  storeId: string,
+  platform: EventPlatform,
+): Promise<AdDestination | null> {
+  const rows = await prisma.adDestination.findMany({
+    where: { orgId, platform, enabled: true, OR: [{ storeId }, { storeId: null }] },
+  });
+  return rows.find((r) => r.storeId === storeId) ?? rows.find((r) => r.storeId === null) ?? null;
+}
 
 /** Enabled destinations for this store, one per platform (store row beats org-wide). */
 export async function resolveDestinationsForStore(storeId: string): Promise<AdDestination[]> {
