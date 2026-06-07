@@ -44,6 +44,11 @@ export function createApp(): Express {
   // Authed admin API (/v1/*) — CORS locked to the admin origin(s).
   app.use('/v1', cors({ origin: env.adminCorsOrigins, credentials: false }));
   app.use(authRouter);
+  // Shopify routes are registered BEFORE the requireAuth routers: the session
+  // bridge, billing approval-return, and /public default-form resolver are public
+  // (no Zaggel JWT yet) and would be intercepted by the routers' router-level
+  // requireAuth. shopifyRouter applies requireAuth per-route (billing/subscribe).
+  app.use(shopifyRouter);
   app.use(orgsRouter);
   app.use(storesRouter);
   app.use(formsRouter);
@@ -58,9 +63,6 @@ export function createApp(): Express {
   app.use(fraudRouter);
   app.use(waRouter);
   app.use(webhooksRouter);
-  // Shopify adapter routes (S7): session bridge + billing live under /v1 (admin
-  // CORS above); the zero-config default-form resolver is /public/* (own CORS).
-  app.use(shopifyRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ ok: false, error: 'not_found' });
