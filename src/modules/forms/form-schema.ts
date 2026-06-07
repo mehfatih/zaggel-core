@@ -4,14 +4,32 @@
 
 import { z } from 'zod';
 
+// Native multi-locale text (CR6). Back-compatible: a plain string is still valid;
+// an object maps BCP-47 locale → string (e.g. { "ar": "الاسم", "en": "Name" }).
+// The SDK picks the form's locale and falls back to the first entry.
+export const i18nText = z.union([z.string(), z.record(z.string())]);
+export type I18nText = z.infer<typeof i18nText>;
+
+// A custom select option (CR5): arbitrary value + (optionally localized) label,
+// independent of the geo `source`.
+export const selectOptionSchema = z.object({
+  value: z.string().min(1),
+  label: i18nText.optional(),
+});
+
 export const formFieldSchema = z.object({
   key: z.string().min(1),
-  type: z.enum(['text', 'phone', 'select', 'textarea']),
+  // CR4: `checkbox` (boolean opt-in) + `quantity` (first-class qty selector, was
+  // design-only) join the original four. Additive — old schemas still validate.
+  type: z.enum(['text', 'phone', 'select', 'textarea', 'checkbox', 'quantity']),
   required: z.boolean().default(false),
-  label: z.string().optional(),
-  placeholder: z.string().optional(),
+  label: i18nText.optional(), // CR6: string OR locale map
+  placeholder: i18nText.optional(),
   country_default: z.string().optional(), // for phone/governorate (e.g. "IQ")
   source: z.string().optional(), // e.g. "governorates:IQ"
+  options: z.array(selectOptionSchema).optional(), // CR5: custom select options
+  min: z.number().int().optional(), // CR4: quantity bounds
+  max: z.number().int().optional(),
 });
 
 export const formSchemaV1 = z.object({
