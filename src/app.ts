@@ -20,6 +20,7 @@ import { waRouter } from './modules/wa/wa.routes.js';
 import { waWebhookRouter } from './modules/wa/wa.webhook.routes.js';
 import { webhooksRouter } from './modules/webhooks/webhooks.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
+import { legalRouter } from './modules/legal/legal.routes.js';
 import { shopifyRouter } from './modules/shopify/shopify.routes.js';
 import { shopifyWebhookRouter } from './modules/shopify/shopify.webhook.routes.js';
 
@@ -40,6 +41,9 @@ export function createApp(): Express {
   // CORS is handled inside the router.
   app.use(waWebhookRouter); // Meta calls this directly (no auth)
   app.use(publicRouter);
+  // Static legal pages (/legal/privacy, /legal/terms) — public, no auth, no JS.
+  // Referenced from the Shopify listing + Meta app settings (S8).
+  app.use(legalRouter);
 
   // Authed admin API (/v1/*) — CORS locked to the admin origin(s).
   app.use('/v1', cors({ origin: env.adminCorsOrigins, credentials: false }));

@@ -19,8 +19,9 @@ import { issueTokens } from '../../lib/auth/tokens.js';
 import { env } from '../../lib/env.js';
 import { verifySessionToken, exchangeToken, isValidShopDomain, ShopifyAuthError } from '../../adapters/shopify/oauth.js';
 import { installFlow } from '../../adapters/shopify/install.js';
-import { createSubscription, finalizeSubscription } from '../../adapters/shopify/billing.js';
+import { createSubscription, finalizeSubscription, cancelSubscription } from '../../adapters/shopify/billing.js';
 import { shopifyConfigured, SHOPIFY_BILLABLE_PLANS } from '../../adapters/shopify/config.js';
+import { scheduleDowngrade } from '../../lib/entitlements/service.js';
 import type { PlanCode } from '../../lib/entitlements/plan-matrix.js';
 
 export const shopifyRouter = Router();
@@ -96,6 +97,32 @@ shopifyRouter.post(
     const returnUrl = `${env.shopifyAppUrl}/v1/shopify/billing/return?shop=${encodeURIComponent(store.domain)}`;
     const result = await createSubscription(store, plan as PlanCode, returnUrl);
     res.json({ ok: true, confirmationUrl: result.confirmationUrl, subscriptionGid: result.subscriptionGid });
+  }),
+);
+
+// --- Billing: self-service downgrade to Free / cancel (requireAuth, S8) ---
+// Shopify billing review requires merchants to be able to downgrade — including back
+// to Free — without contacting support. Cancelling the active app subscription here
+// schedules the drop at period end (features stay live until then, §6b); the nightly
+// reconciliation reverts the org to Free once currentPeriodEnd elapses. Downgrades
+// BETWEEN paid plans (e.g. Pro → Growth) go through /subscribe, which replaces the
+// active subscription on approval.
+shopifyRouter.post(
+  '/v1/shopify/billing/cancel',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    ensureConfigured();
+    const store = await shopifyStoreForOrg(req.auth!.orgId);
+    if (!store) throw notFound('shopify_store_not_found');
+
+    const result = await cancelSubscription(store);
+    if (!result) {
+      // No active paid subscription — already on Free (idempotent).
+      res.json({ ok: true, alreadyFree: true, effectiveAt: null });
+      return;
+    }
+    await scheduleDowngrade(req.auth!.orgId, 'cancelled', result.currentPeriodEnd);
+    res.json({ ok: true, alreadyFree: false, effectiveAt: result.currentPeriodEnd?.toISOString() ?? null });
   }),
 );
 
