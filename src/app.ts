@@ -15,6 +15,7 @@ import { addestRouter } from './modules/addest/addest.routes.js';
 import { attributionRouter } from './modules/attribution/attribution.routes.js';
 import { apiKeysRouter } from './modules/apikeys/apikeys.routes.js';
 import { ordersRouter } from './modules/orders/orders.routes.js';
+import { fraudRouter } from './modules/fraud/fraud.routes.js';
 import { waRouter } from './modules/wa/wa.routes.js';
 import { waWebhookRouter } from './modules/wa/wa.webhook.routes.js';
 import { webhooksRouter } from './modules/webhooks/webhooks.routes.js';
@@ -47,6 +48,7 @@ export function createApp(): Express {
   app.use(attributionRouter);
   app.use(apiKeysRouter);
   app.use(ordersRouter);
+  app.use(fraudRouter);
   app.use(waRouter);
   app.use(webhooksRouter);
 
