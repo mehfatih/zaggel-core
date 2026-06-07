@@ -97,6 +97,14 @@ enum BlacklistReason {
   fraud
 }
 
+// Synchronous-at-submit risk band (S6). Green auto-flow, Yellow → WA-OTP / review,
+// Red → soft-reject + queue for human override (ADR-0013). Stored on the order.
+enum RiskBand {
+  green
+  yellow
+  red
+}
+
 enum SubscriptionStatus {
   active
   past_due
@@ -131,6 +139,7 @@ model Org {
   users            User[]
   stores           Store[]
   blacklistOrigin  BlacklistEntry[] @relation("BlacklistSourceOrg")
+  blacklistDisputes BlacklistDispute[] @relation("BlacklistDisputeOrg")
   subscriptions    Subscription[]
   usageCounters    UsageCounter[]
   apiKeys          ApiKey[]
@@ -191,6 +200,7 @@ model Form {
   name        String
   schemaJson  Json?       @map("schema_json")
   designJson  Json?       @map("design_json")
+  riskConfigJson Json?    @map("risk_config_json") // S6 per-form risk thresholds + signal toggles (ADR-0013)
   pricingJson Json?       @map("pricing_json") // form-level pricing settings (S3): display currency, numeral override, free-ship threshold, Mode-A display rate
   pricingMode PricingMode @default(independent) @map("pricing_mode")
   status      FormStatus  @default(draft)
@@ -357,6 +367,9 @@ model Order {
   userAgent   String? @map("user_agent")
 
   riskScore         Int      @default(0) @map("risk_score")
+  riskBand          RiskBand @default(green) @map("risk_band") // S6 composite band
+  riskReasonsJson   Json?    @map("risk_reasons_json") // S6 signal breakdown (audit / transparency)
+  reviewState       String   @default("none") @map("review_state") // none | pending | approved | denied (S6 manual-review queue)
   statusHistoryJson Json?    @map("status_history_json")
 
   // S4: staff assignment (confirmation teams / agency mode foundation) and the
@@ -452,18 +465,45 @@ model AdCost {
 }
 
 // Cross-org by design (hashed, contribute-to-consume — ADR-0004 / L7). Not org-scoped on read.
+// One row per (phone_hash, source_org_id): re-reports REINFORCE (bump report_count +
+// last_reinforced_at) instead of inserting duplicates — so a single org can never
+// inflate distinct-org count past 1. Tier-1 (network-actionable) needs ≥2 distinct
+// orgs; governance (TTL decay, dispute, quarantine) lives in ADR-0012.
 model BlacklistEntry {
-  id          String          @id @default(cuid())
-  phoneHash   String          @map("phone_hash") // SHA-256(E.164 + pepper)
-  reason      BlacklistReason
-  sourceOrgId String          @map("source_org_id")
-  confidence  Int             @default(1)
-  createdAt   DateTime        @default(now()) @map("created_at")
+  id               String          @id @default(cuid())
+  phoneHash        String          @map("phone_hash") // SHA-256(E.164 + pepper)
+  reason           BlacklistReason
+  sourceOrgId      String          @map("source_org_id")
+  confidence       Int             @default(1)
+  reportCount      Int             @default(1) @map("report_count") // reinforcements from this org
+  quarantined      Boolean         @default(false) // abuse monitoring: flooding org → excluded from tiers
+  disputedAt       DateTime?       @map("disputed_at") // open dispute → excluded from actionable until resolved
+  lastReinforcedAt DateTime?       @map("last_reinforced_at") // anchors 12-month TTL decay
+  createdAt        DateTime        @default(now()) @map("created_at")
 
   sourceOrg Org @relation("BlacklistSourceOrg", fields: [sourceOrgId], references: [id], onDelete: Cascade)
 
+  @@unique([phoneHash, sourceOrgId]) // one row per contributing org → poisoning resistance
   @@index([phoneHash]) // approved addition #2
   @@map("blacklist_entries")
+}
+
+// Customer-initiated removal/appeal, raised by a merchant on the customer's behalf
+// (ADR-0012 governance). Hash-only — no raw number leaves the contributing row-space.
+model BlacklistDispute {
+  id         String    @id @default(cuid())
+  phoneHash  String    @map("phone_hash")
+  orgId      String    @map("org_id")
+  reason     String
+  status     String    @default("open") // open | upheld | released
+  createdAt  DateTime  @default(now()) @map("created_at")
+  resolvedAt DateTime? @map("resolved_at")
+
+  org Org @relation("BlacklistDisputeOrg", fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([phoneHash])
+  @@index([orgId])
+  @@map("blacklist_disputes")
 }
 
 model WaConversation {

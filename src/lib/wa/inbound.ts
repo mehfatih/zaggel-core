@@ -12,6 +12,8 @@ import { CONFIRM_PAYLOAD, EDIT_PAYLOAD, CANCEL_PAYLOAD } from './templates.js';
 import { sendConfirmedThanks, logMessage } from './messages.js';
 import { transitionOrder } from '../../modules/orders/orders.service.js';
 import { getWaSettings } from './settings.js';
+import { classifyIntent } from '../fraud/intent.js';
+import { incrementUsage } from '../entitlements/service.js';
 
 export interface InboundMessage {
   id: string; // WA message id (wamid…) — idempotency key
@@ -81,7 +83,16 @@ export async function processInboundMessage(orgId: string, msg: InboundMessage):
     orderBy: { createdAt: 'desc' },
     include: { order: true },
   });
-  if (!conv) return false;
+  if (!conv) {
+    // Cold inbound with no live order (S6 §3 troll defense): a message that arrives
+    // WITHOUT the pre-filled order text or any catalog/order keyword is counted as
+    // low-intent for the fraud dashboard. Privacy-safe — only a per-org tally, no
+    // PII stored; the merchant blocks repeat offenders one-tap (→ Tier-0 blacklist).
+    if (msg.kind === 'text' && msg.text && !isOptOut(msg.text) && classifyIntent(msg.text) === 'low_intent') {
+      await incrementUsage(orgId, 'wa_low_intent');
+    }
+    return false;
+  }
 
   // Idempotent log: a duplicate provider id means we already handled this message.
   try {

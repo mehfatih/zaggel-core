@@ -66,4 +66,5 @@ export const DIRECT_ORG_MODELS = new Set<string>([
   'WebhookEndpoint', // S4 — outbound webhook subscriptions
   'AdDestination', // S5 — per-platform pixel/token config
   'AdCost', // S5 — manual ad-spend import (delivered-ROAS)
+  'BlacklistDispute', // S6 — merchant-raised appeals (own-org reads auto-scoped; governance reads via system context)
 ]);

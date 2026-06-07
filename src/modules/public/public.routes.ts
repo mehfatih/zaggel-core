@@ -16,6 +16,8 @@ import { generateOtp, verifyOtp } from '../../lib/wa/otp.js';
 import { emitOrderEvent } from '../../lib/webhooks/dispatch.js';
 import { queueLadderEvent } from '../../lib/events/outbox.js';
 import { notifyMerchant } from '../../lib/notify/notifier.js';
+import { parsePhone, normalizeE164 } from '../../lib/blacklist/phone.js';
+import { assessOrderRisk } from '../../lib/fraud/assess.js';
 
 /** Whether a form requires a WhatsApp OTP before accepting an order (S4). */
 function formRequiresOtp(form: { schemaJson: unknown }): boolean {
@@ -109,6 +111,14 @@ const orderSchema = z.object({
   items: z.array(z.object({ productId: z.string().min(1), qty: z.coerce.number().int().positive().default(1) })).optional(),
   otp: z.string().max(8).optional(), // required only when the form has otp_required
   company: z.string().optional(), // honeypot — must stay empty
+  // SDK behavior telemetry (S6 risk scoring). All optional + advisory.
+  behavior: z
+    .object({
+      fillMs: z.coerce.number().int().nonnegative().optional(), // time from first focus to submit
+      pasted: z.boolean().optional(), // fields filled by paste only
+      honeypotTouched: z.boolean().optional(), // hidden field interacted with
+    })
+    .optional(),
   utm: z
     .object({
       source: z.string().optional(),
@@ -167,13 +177,41 @@ publicRouter.post(
       // Resolve governorate (global catalog) by id or ISO 3166-2 code.
       let governorateId: string | null = null;
       let governorateName = '';
+      let countryCode: string | null = null;
       if (body.governorate) {
         const gov = await prisma.governorate.findFirst({
           where: { OR: [{ id: body.governorate }, { iso3166_2: body.governorate }] },
         });
         governorateId = gov?.id ?? null;
         governorateName = gov?.nameAr ?? '';
+        countryCode = gov?.countryCode ?? null;
       }
+
+      // Normalize to E.164 (ADR-0004): stored on the order so velocity, WA delivery,
+      // and any future blacklist hash all key off the same canonical number.
+      const phoneInfo = parsePhone(body.phone, countryCode);
+      const phoneE164 = phoneInfo.e164 ?? normalizeE164(body.phone, countryCode);
+
+      // Synchronous risk assessment (S6, ADR-0013).
+      const risk = await assessOrderRisk({
+        orgId,
+        riskConfigJson: form.riskConfigJson,
+        e164: phoneE164,
+        phoneInfo,
+        behavior: { ...(body.behavior?.fillMs !== undefined ? { fillMs: body.behavior.fillMs } : {}), ...(body.behavior?.pasted !== undefined ? { pasteOnly: body.behavior.pasted } : {}), ...(body.behavior?.honeypotTouched !== undefined ? { honeypotTouched: body.behavior.honeypotTouched } : {}) },
+        ip,
+        ua,
+      });
+
+      // Yellow → force WA-OTP (the S6 DoD). If the buyer hasn't cleared an OTP yet,
+      // signal the SDK to run the OTP step and resubmit. Form-level OTP was already
+      // verified above; a risk-triggered OTP reuses the same stateless verifier.
+      const otpSatisfied = formRequiresOtp(form) || (!!body.otp && verifyOtp(body.phone, form.id, body.otp));
+      if (risk.band === 'yellow' && !otpSatisfied) return { otpRequired: true as const };
+
+      // Review state: Red is queued for human override (decision: never hard-reject
+      // a sale — L10); Green/cleared-Yellow flow normally.
+      const reviewState = risk.band === 'red' ? 'pending' : 'none';
 
       // Price the order against the form's snapshot — display pair is the PROMISE
       // the customer saw (S3 accounting integrity, ADR-0007). Store pair stays null
@@ -189,13 +227,17 @@ publicRouter.post(
           storeId: store.id,
           status: 'submitted',
           customerName: body.name,
-          phoneE164: body.phone,
+          phoneE164,
           governorateId,
           addressText: body.address ?? null,
           landmarkText: body.landmark ?? null,
           itemsJson: (priced?.lineItems ?? body.items ?? []) as unknown as Prisma.InputJsonValue,
           displayPrice,
           displayCurrency,
+          riskScore: risk.score,
+          riskBand: risk.band,
+          riskReasonsJson: risk.reasons as unknown as Prisma.InputJsonValue,
+          reviewState,
           utmSource: body.utm?.source ?? null,
           utmMedium: body.utm?.medium ?? null,
           utmCampaign: body.utm?.campaign ?? null,
@@ -211,23 +253,31 @@ publicRouter.post(
       await incrementUsage(orgId, 'orders_submitted');
       const limit = await checkLimit(orgId, 'orders_per_month');
 
-      // Close any pending recovery lead for this phone+form — they ordered.
+      // Close any pending recovery lead for this phone+form — they ordered. Matches
+      // on the raw input (leads are stored as the buyer typed them at `/start`).
       await markLeadsRecovered(form.id, body.phone, order.id);
 
       // Outbound webhook: order.created (best-effort).
       await emitOrderEvent(orgId, 'order.created', order);
 
-      // Ad-signal: queue the `submitted` rung (Lead/AddPaymentInfo) per connected
-      // destination for the S5 dispatcher. Best-effort — never block the sale.
-      try {
-        await queueLadderEvent(order, 'submitted');
-      } catch {
-        // a queue hiccup must not fail the order
+      // Whether downstream automation pauses: soft-block (limit, L10) OR Red band
+      // (S6). The sale is still recorded; we just don't spend WA/shipping/ad-signal
+      // on a likely-fraud order until a human approves it in the review queue.
+      const paused = limit.exceeded || risk.band === 'red';
+
+      // Ad-signal (S5): queue the `submitted` rung (Lead/AddPaymentInfo) per connected
+      // destination for the dispatcher. Skipped for Red orders — firing a Lead for a
+      // likely-fraud soft-reject would pollute the ad signal. Best-effort.
+      if (risk.band !== 'red') {
+        try {
+          await queueLadderEvent(order, 'submitted');
+        } catch {
+          // a queue hiccup must not fail the order
+        }
       }
 
-      // WhatsApp auto-confirmation (S4). Best-effort; soft-blocked orders skip the
-      // send (the sale is still recorded — L10 — but downstream automation pauses).
-      if (!limit.exceeded) {
+      // WhatsApp auto-confirmation (S4). Skipped when paused (see above).
+      if (!paused) {
         const sent = await sendOrderConfirm(orgId, order, { brand: store.domain, governorate: governorateName });
         if (!sent) {
           await notifyMerchant(orgId, {
@@ -245,10 +295,18 @@ publicRouter.post(
         data: { orderId: order.id, customer: order.customerName, total: order.displayPrice.toString(), currency: order.displayCurrency },
       });
 
-      return { order, softBlock: limit.exceeded };
+      return { order, softBlock: limit.exceeded, band: risk.band };
     });
 
     if ('rateLimited' in result) throw tooMany('velocity_limit');
+    // Risk-forced OTP (Yellow band): tell the SDK to run the WA-OTP step + resubmit.
+    if ('otpRequired' in result) throw badRequest('otp_required', { reason: 'risk_review' });
+    // Red band: polite soft-reject — the order IS persisted for merchant override
+    // (review queue), but the buyer sees a neutral "we'll contact you" ack.
+    if (result.band === 'red') {
+      res.status(202).json({ ok: true, ref: result.order.id, review: true, message: 'تم استلام طلبك وسنتواصل معك لتأكيده.' });
+      return;
+    }
     // Soft-block: the sale is NEVER refused; downstream events/WA pause (later sprints).
     res.status(201).json({ ok: true, ref: result.order.id, softBlock: result.softBlock });
   }),

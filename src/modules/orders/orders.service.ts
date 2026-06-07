@@ -12,6 +12,7 @@ import { incrementUsage } from '../../lib/entitlements/service.js';
 import { conflict, notFound } from '../../lib/http/errors.js';
 import { emitOrderEvent, type OrderEventName } from '../../lib/webhooks/dispatch.js';
 import { queueLadderEvent } from '../../lib/events/outbox.js';
+import { contributeToBlacklist } from '../../lib/blacklist/service.js';
 
 // Order status → outbound webhook event (only the rungs subscribers care about).
 const STATUS_EVENT: Partial<Record<OrderStatus, OrderEventName>> = {
@@ -60,6 +61,16 @@ export async function transitionOrder(
   // (L6); delivered/refused feed the quality + negative-signal audiences.
   if (to === 'wa_confirmed' || to === 'delivered' || to === 'refused') {
     await queueLadderEvent(updated, to);
+  }
+
+  // S6 network effect: a refusal feeds the shared blacklist (contribute-to-consume).
+  // Best-effort — a blacklist hiccup must never block the merchant's status update.
+  if (to === 'refused') {
+    try {
+      await contributeToBlacklist(orgId, updated.phoneE164, 'refused');
+    } catch {
+      /* swallow: contribution is non-critical to the transition */
+    }
   }
 
   // Outbound webhook for the subscribed rungs (best-effort, never throws here).

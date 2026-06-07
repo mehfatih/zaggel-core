@@ -7,7 +7,7 @@
 
 const TASHKEEL = /[ؐ-ًؚ-ٰٟۖ-ۭـ]/g; // harakat + tatweel
 
-function normalizeArabic(input: string): string {
+export function normalizeArabic(input: string): string {
   let s = input.trim().toLowerCase();
   s = s.replace(TASHKEEL, '');
   s = s
