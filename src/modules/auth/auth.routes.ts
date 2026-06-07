@@ -6,12 +6,8 @@ import { runAsSystem, runWithOrg } from '../../lib/tenancy.js';
 import { asyncHandler, validateBody } from '../../lib/http/handler.js';
 import { conflict, unauthorized } from '../../lib/http/errors.js';
 import { hashPassword, verifyPassword } from '../../lib/auth/password.js';
-import {
-  signAccessToken,
-  newRefreshToken,
-  hashRefreshToken,
-  refreshTtlMs,
-} from '../../lib/auth/jwt.js';
+import { hashRefreshToken } from '../../lib/auth/jwt.js';
+import { issueTokens } from '../../lib/auth/tokens.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
 import { authLimiter } from '../../lib/ratelimit.js';
 import { ensureFreeSubscription } from '../../lib/entitlements/service.js';
@@ -34,15 +30,6 @@ function publicUser(u: User): Omit<User, 'passwordHash'> {
 }
 function publicOrg(o: Org): Pick<Org, 'id' | 'name' | 'plan'> {
   return { id: o.id, name: o.name, plan: o.plan };
-}
-
-async function issueTokens(user: User): Promise<{ accessToken: string; refreshToken: string }> {
-  const accessToken = signAccessToken({ sub: user.id, org: user.orgId, role: user.role });
-  const { token, hash } = newRefreshToken();
-  await prisma.refreshToken.create({
-    data: { userId: user.id, tokenHash: hash, expiresAt: new Date(Date.now() + refreshTtlMs()) },
-  });
-  return { accessToken, refreshToken: token };
 }
 
 authRouter.post(

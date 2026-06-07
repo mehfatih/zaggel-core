@@ -191,6 +191,7 @@ model Store {
   abandonedLeads AbandonedLead[]
 
   @@index([orgId])
+  @@index([domain]) // S7: webhook X-Shopify-Shop-Domain → store routing
   @@map("stores")
 }
 
@@ -665,6 +666,8 @@ model Subscription {
   planCode         String             @map("plan_code")
   status           SubscriptionStatus @default(active)
   source           SubscriptionSource @default(manual)
+  externalId       String?            @map("external_id") // platform subscription id (e.g. Shopify AppSubscription GID) — S7
+  externalStatus   String?            @map("external_status") // platform-reported status for reconciliation — S7
   currentPeriodEnd DateTime?          @map("current_period_end")
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
@@ -673,6 +676,7 @@ model Subscription {
   plan PricingPlan @relation(fields: [planCode], references: [code])
 
   @@index([orgId])
+  @@index([externalId])
   @@map("subscriptions")
 }
 

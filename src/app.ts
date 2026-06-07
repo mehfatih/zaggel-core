@@ -20,10 +20,17 @@ import { waRouter } from './modules/wa/wa.routes.js';
 import { waWebhookRouter } from './modules/wa/wa.webhook.routes.js';
 import { webhooksRouter } from './modules/webhooks/webhooks.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
+import { shopifyRouter } from './modules/shopify/shopify.routes.js';
+import { shopifyWebhookRouter } from './modules/shopify/shopify.webhook.routes.js';
 
 export function createApp(): Express {
   const app = express();
   app.set('trust proxy', 1); // Railway runs behind one proxy; needed for req.ip + rate limits
+
+  // Shopify webhooks need the RAW body for HMAC — register BEFORE express.json so
+  // the JSON parser doesn't consume the stream first (S7, ADR-0016).
+  app.use(shopifyWebhookRouter);
+
   app.use(express.json({ limit: '1mb' }));
 
   app.use(healthRouter);
@@ -51,6 +58,9 @@ export function createApp(): Express {
   app.use(fraudRouter);
   app.use(waRouter);
   app.use(webhooksRouter);
+  // Shopify adapter routes (S7): session bridge + billing live under /v1 (admin
+  // CORS above); the zero-config default-form resolver is /public/* (own CORS).
+  app.use(shopifyRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ ok: false, error: 'not_found' });

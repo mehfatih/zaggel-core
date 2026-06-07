@@ -40,6 +40,81 @@ export async function getActivePlanCode(orgId: string): Promise<string> {
   return sub?.planCode ?? 'free';
 }
 
+type SubSource = 'shopify' | 'salla' | 'zid' | 'woo' | 'manual';
+
+export interface PlanChangeOpts {
+  source?: SubSource;
+  externalId?: string | null; // platform subscription id (e.g. Shopify AppSubscription GID)
+  externalStatus?: string | null; // platform-reported status (reconciliation)
+  currentPeriodEnd?: Date | null;
+}
+
+/**
+ * Flip the org's subscription to `planCode` ACTIVE immediately (§6b "pay → features
+ * flip on instantly"). One subscription row per org is mutated in place; created if
+ * absent. Used by platform billing webhooks/callbacks.
+ */
+export async function setSubscriptionPlan(orgId: string, planCode: string, opts: PlanChangeOpts = {}): Promise<void> {
+  const existing = await prisma.subscription.findFirst({ where: { orgId }, orderBy: { createdAt: 'desc' } });
+  const data = {
+    planCode,
+    status: 'active' as const,
+    ...(opts.source ? { source: opts.source } : {}),
+    externalId: opts.externalId ?? null,
+    externalStatus: opts.externalStatus ?? null,
+    currentPeriodEnd: opts.currentPeriodEnd ?? null,
+  };
+  if (existing) {
+    await prisma.subscription.update({ where: { id: existing.id }, data });
+  } else {
+    await prisma.subscription.create({ data: { orgId, ...data } });
+  }
+}
+
+/**
+ * Schedule a downgrade/cancel WITHOUT yanking features mid-cycle (§6b). The plan
+ * stays live until `currentPeriodEnd`; `revertExpiredSubscriptions` flips it to
+ * free once the period elapses. `externalStatus` carries the platform state
+ * (cancelled | past_due | frozen) for the reconciliation banner.
+ */
+export async function scheduleDowngrade(
+  orgId: string,
+  externalStatus: string,
+  currentPeriodEnd: Date | null,
+): Promise<void> {
+  const existing = await prisma.subscription.findFirst({ where: { orgId }, orderBy: { createdAt: 'desc' } });
+  if (!existing) return;
+  await prisma.subscription.update({
+    where: { id: existing.id },
+    data: { externalStatus, currentPeriodEnd },
+  });
+}
+
+/**
+ * Nightly: revert any subscription whose paid period has ended after a cancel /
+ * non-renewal back to free. `graceMs` extends past_due before reverting (7-day
+ * grace, §6b). Returns the number of orgs reverted.
+ */
+export async function revertExpiredSubscriptions(now = new Date(), graceMs = 7 * 24 * 60 * 60 * 1000): Promise<number> {
+  const candidates = await prisma.subscription.findMany({
+    where: {
+      planCode: { not: 'free' },
+      externalStatus: { in: ['cancelled', 'canceled', 'expired', 'frozen', 'declined', 'past_due'] },
+    },
+  });
+  let reverted = 0;
+  for (const sub of candidates) {
+    const deadline = sub.externalStatus === 'past_due' ? new Date((sub.currentPeriodEnd ?? now).getTime() + graceMs) : sub.currentPeriodEnd;
+    if (deadline && deadline > now) continue; // still within paid period / grace
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { planCode: 'free', status: 'active', source: 'manual', externalId: null, externalStatus: null, currentPeriodEnd: null },
+    });
+    reverted += 1;
+  }
+  return reverted;
+}
+
 export function currentPeriod(date = new Date()): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
