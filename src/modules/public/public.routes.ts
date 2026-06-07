@@ -7,7 +7,7 @@ import { runAsSystem, runWithOrg } from '../../lib/tenancy.js';
 import { asyncHandler, validateBody } from '../../lib/http/handler.js';
 import { notFound, tooMany, badRequest } from '../../lib/http/errors.js';
 import { publicOrderLimiter } from '../../lib/ratelimit.js';
-import { incrementUsage, checkLimit } from '../../lib/entitlements/service.js';
+import { incrementUsage, checkLimit, getActivePlanCode } from '../../lib/entitlements/service.js';
 import { buildPricingSnapshot, priceOrder, resolveFormCurrency } from '../../lib/pricing/engine.js';
 import { sendOrderConfirm, sendOtpMessage } from '../../lib/wa/messages.js';
 import { markLeadsRecovered } from '../../lib/wa/recovery.js';
@@ -81,6 +81,11 @@ publicRouter.get(
     // shipping matched from the snapshot. Retires the SDK's vendored geo fallback.
     const geo = await runAsSystem(() => buildManifestGeo(form.schemaJson, pricing?.shipping ?? []));
 
+    // Branding (S8): the SDK shows the compliant "Zaggel" attribution badge on the
+    // Free plan only (Shopify App Name Branding rule). Paid plans suppress it. The
+    // field is additive — older SDK builds ignore it and render no badge.
+    const planCode = await runAsSystem(() => getActivePlanCode(resolved.orgId));
+
     const manifest = {
       version: 1,
       formId: form.id,
@@ -94,6 +99,7 @@ publicRouter.get(
       // Rotating submit token (CR3): the SDK echoes it on order POST. Soft in v1
       // — validated only when present, so old SDK builds keep working.
       submitToken: generateSubmitToken(form.id),
+      branding: { badge: planCode === 'free' }, // S8: free-plan attribution only
       store: { platform: store.platform, domain: store.domain },
       updatedAt: form.updatedAt,
     };
