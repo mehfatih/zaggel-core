@@ -1,5 +1,5 @@
 // S6 Definition of Done, against the real dev DB. Self-skips when DATABASE_URL is
-// absent. Requires migration 0005 to be applied first (raw SQL in the PR body).
+// absent. Requires migration 0006 to be applied first (raw SQL in the PR body).
 //
 // DoD: a phone marked `refused` by TWO independent orgs is auto-flagged Yellow on
 // a THIRD org's form and forced through WA-OTP; the shared blacklist shows the
