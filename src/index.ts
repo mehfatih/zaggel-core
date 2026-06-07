@@ -4,6 +4,7 @@ import { disconnectPrisma } from './lib/prisma.js';
 import { runRecoverySweep } from './lib/wa/recovery.js';
 import { runDailyDigests } from './lib/notify/digest.js';
 import { startDispatcher, stopDispatcher } from './lib/events/queue.js';
+import { runShopifyReconciliation } from './adapters/shopify/reconcile.js';
 
 const app = createApp();
 
@@ -39,11 +40,23 @@ digestTimer.unref();
 // in-process sweeper drains events_outbox. Either way, rows are durable.
 startDispatcher();
 
+// Shopify billing reconciliation (S7, §6b). Nightly safety net for missed billing
+// webhooks + Growth usage metering. No-op until the Shopify app is configured.
+const RECONCILE_SWEEP_MS = 24 * 60 * 60 * 1000;
+const reconcileTimer = setInterval(() => {
+  void runShopifyReconciliation().catch((err) => {
+    // eslint-disable-next-line no-console
+    if (!env.isProd) console.error('[shopify-reconcile] sweep failed', err);
+  });
+}, RECONCILE_SWEEP_MS);
+reconcileTimer.unref();
+
 async function shutdown(signal: string): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`\n${signal} received — shutting down.`);
   clearInterval(recoveryTimer);
   clearInterval(digestTimer);
+  clearInterval(reconcileTimer);
   await stopDispatcher();
   server.close();
   await disconnectPrisma();
