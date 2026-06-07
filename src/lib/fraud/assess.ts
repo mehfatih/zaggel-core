@@ -6,7 +6,6 @@
 import { resolveRiskConfig } from './config.js';
 import { gatherSignals } from './signals.js';
 import { scoreOrder, type RiskAssessment } from './scorer.js';
-import { hasContributed } from '../blacklist/service.js';
 import type { PhoneInfo } from '../blacklist/phone.js';
 
 export interface AssessParams {
@@ -30,7 +29,6 @@ export async function assessOrderRisk(p: AssessParams): Promise<OrderRiskResult>
     return { score: 0, band: 'green', reasons: [], networkTier: null };
   }
 
-  const canConsumeNetwork = await hasContributed(p.orgId);
   const signals = await gatherSignals({
     orgId: p.orgId,
     e164: p.e164,
@@ -38,7 +36,6 @@ export async function assessOrderRisk(p: AssessParams): Promise<OrderRiskResult>
     behavior: p.behavior,
     ip: p.ip,
     ua: p.ua,
-    canConsumeNetwork,
     ...(p.now ? { now: p.now } : {}),
   });
 

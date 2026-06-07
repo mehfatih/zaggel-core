@@ -41,26 +41,34 @@ export interface GatherParams {
   behavior: { fillMs?: number; honeypotTouched?: boolean; pasteOnly?: boolean };
   ip: string | null;
   ua: string | null;
-  canConsumeNetwork: boolean; // contribute-to-consume gate (L7)
   now?: Date;
 }
 
-/** Gather all risk signals for an inbound order (runs inside the org tenant context). */
+/**
+ * Gather all risk signals for an inbound order (runs inside the org tenant context).
+ * Every DB hop — velocity, history, IP velocity, the contribute-to-consume check,
+ * and the network lookup — is issued in ONE Promise.all (a single round-trip) to
+ * stay within the submit-path latency budget (ADR-0013). The network result is
+ * discarded unless the org has contributed (L7); fetching it in parallel costs no
+ * extra latency and keeps the gate strict (the data is never used for non-feeders).
+ */
 export async function gatherSignals(p: GatherParams): Promise<RiskSignals> {
   const now = p.now ?? new Date();
   const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const orgScope = { store: { orgId: p.orgId } }; // nested-tenant scope (ADR-0001)
 
-  const [velocity24h, refusedOrders, unreachableAgg, ipVelocity24h, network] = await Promise.all([
+  const [velocity24h, refusedOrders, unreachableAgg, ipVelocity24h, contributions, network] = await Promise.all([
     prisma.order.count({ where: { ...orgScope, phoneE164: p.e164, createdAt: { gte: since24h } } }),
     prisma.order.count({ where: { ...orgScope, phoneE164: p.e164, status: 'refused' } }),
     prisma.order.aggregate({ _sum: { unreachableCount: true }, where: { ...orgScope, phoneE164: p.e164 } }),
     p.ip ? prisma.order.count({ where: { ...orgScope, ip: p.ip, createdAt: { gte: since24h } } }) : Promise.resolve(0),
-    p.canConsumeNetwork ? lookupNetwork(p.e164, now) : Promise.resolve(null),
+    prisma.blacklistEntry.count({ where: { sourceOrgId: p.orgId } }), // contribute-to-consume gate (L7)
+    lookupNetwork(p.e164, now),
   ]);
 
-  const dominantReason = network
-    ? (Object.entries(network.reasonCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null)
+  const usableNetwork = contributions > 0 ? network : null; // only feeders read the network
+  const dominantReason = usableNetwork
+    ? (Object.entries(usableNetwork.reasonCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null)
     : null;
 
   return {
@@ -69,7 +77,7 @@ export async function gatherSignals(p: GatherParams): Promise<RiskSignals> {
     velocity24h,
     priorRefused: refusedOrders,
     priorUnreachable: unreachableAgg._sum.unreachableCount ?? 0,
-    networkTier: network ? network.tier : null,
+    networkTier: usableNetwork ? usableNetwork.tier : null,
     networkReason: dominantReason,
     behavior: p.behavior,
     headlessUa: isHeadlessUa(p.ua),
