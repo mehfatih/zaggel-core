@@ -32,6 +32,7 @@
     "express-rate-limit": "^8.5.2",
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
+    "libphonenumber-js": "^1.13.6",
     "libsodium-wrappers": "^0.8.4",
     "zod": "^3.24.1"
   },
