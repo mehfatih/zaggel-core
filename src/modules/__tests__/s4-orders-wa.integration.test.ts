@@ -74,6 +74,14 @@ describe.skipIf(!hasDb)('S4 orders + WhatsApp e2e', () => {
       .set('Authorization', `Bearer ${auth.token}`)
       .send({ phoneNumberId: PHONE_NUMBER_ID, autoAdvance: true });
     expect(s.status).toBe(200);
+
+    // S5: connect an org-wide Meta destination so the ladder dispatcher has a
+    // target — outbox rows are only queued for CONNECTED destinations.
+    await runAsSystem(() =>
+      prisma.adDestination.create({
+        data: { orgId: auth.orgId, platform: 'meta', pixelId: `px-${rid}` },
+      }),
+    );
   });
 
   afterAll(async () => {

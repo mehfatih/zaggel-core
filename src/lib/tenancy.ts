@@ -64,4 +64,6 @@ export const DIRECT_ORG_MODELS = new Set<string>([
   'WaSettings', // S4 — per-org WhatsApp config
   'WaTemplate', // S4 — template manager
   'WebhookEndpoint', // S4 — outbound webhook subscriptions
+  'AdDestination', // S5 — per-platform pixel/token config
+  'AdCost', // S5 — manual ad-spend import (delivered-ROAS)
 ]);

@@ -14,6 +14,7 @@ import { markLeadsRecovered } from '../../lib/wa/recovery.js';
 import { getWaSettings } from '../../lib/wa/settings.js';
 import { generateOtp, verifyOtp } from '../../lib/wa/otp.js';
 import { emitOrderEvent } from '../../lib/webhooks/dispatch.js';
+import { queueLadderEvent } from '../../lib/events/outbox.js';
 import { notifyMerchant } from '../../lib/notify/notifier.js';
 
 /** Whether a form requires a WhatsApp OTP before accepting an order (S4). */
@@ -215,6 +216,14 @@ publicRouter.post(
 
       // Outbound webhook: order.created (best-effort).
       await emitOrderEvent(orgId, 'order.created', order);
+
+      // Ad-signal: queue the `submitted` rung (Lead/AddPaymentInfo) per connected
+      // destination for the S5 dispatcher. Best-effort — never block the sale.
+      try {
+        await queueLadderEvent(order, 'submitted');
+      } catch {
+        // a queue hiccup must not fail the order
+      }
 
       // WhatsApp auto-confirmation (S4). Best-effort; soft-blocked orders skip the
       // send (the sale is still recorded — L10 — but downstream automation pauses).

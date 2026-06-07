@@ -3,6 +3,7 @@ import { env } from './lib/env.js';
 import { disconnectPrisma } from './lib/prisma.js';
 import { runRecoverySweep } from './lib/wa/recovery.js';
 import { runDailyDigests } from './lib/notify/digest.js';
+import { startDispatcher, stopDispatcher } from './lib/events/queue.js';
 
 const app = createApp();
 
@@ -34,11 +35,16 @@ const digestTimer = setInterval(() => {
 }, DIGEST_SWEEP_MS);
 digestTimer.unref();
 
+// Ad-signal dispatcher (S5). BullMQ/Redis when REDIS_URL is set; otherwise an
+// in-process sweeper drains events_outbox. Either way, rows are durable.
+startDispatcher();
+
 async function shutdown(signal: string): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`\n${signal} received — shutting down.`);
   clearInterval(recoveryTimer);
   clearInterval(digestTimer);
+  await stopDispatcher();
   server.close();
   await disconnectPrisma();
   process.exit(0);

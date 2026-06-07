@@ -11,6 +11,8 @@ import { productsRouter } from './modules/products/products.routes.js';
 import { pricingRouter } from './modules/pricing/pricing.routes.js';
 import { shippingRouter } from './modules/shipping/shipping.routes.js';
 import { reportingRouter } from './modules/reporting/reporting.routes.js';
+import { addestRouter } from './modules/addest/addest.routes.js';
+import { attributionRouter } from './modules/attribution/attribution.routes.js';
 import { apiKeysRouter } from './modules/apikeys/apikeys.routes.js';
 import { ordersRouter } from './modules/orders/orders.routes.js';
 import { waRouter } from './modules/wa/wa.routes.js';
@@ -41,6 +43,8 @@ export function createApp(): Express {
   app.use(pricingRouter);
   app.use(shippingRouter);
   app.use(reportingRouter);
+  app.use(addestRouter);
+  app.use(attributionRouter);
   app.use(apiKeysRouter);
   app.use(ordersRouter);
   app.use(waRouter);
