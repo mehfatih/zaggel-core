@@ -10,7 +10,6 @@
 // `setSubscriptionPlan` — this module only translates Shopify ↔ our plan codes.
 
 import type { Store } from '@prisma/client';
-import { env } from '../../lib/env.js';
 import type { PlanCode } from '../../lib/entitlements/plan-matrix.js';
 import { setSubscriptionPlan, getUsage, incrementUsage, currentPeriod } from '../../lib/entitlements/service.js';
 import { shopifyGraphqlForStore, ShopifyApiError } from './client.js';
@@ -19,6 +18,7 @@ import {
   BILLING_CURRENCY,
   GROWTH,
   billableConfirmedOrders,
+  billingTestMode,
   type PlanBilling,
 } from './config.js';
 
@@ -99,7 +99,7 @@ export async function createSubscription(
     name: billing.shopifyPlanName,
     returnUrl,
     trialDays: billing.trialDays,
-    test: !env.isProd,
+    test: billingTestMode(), // SHOPIFY_BILLING_TEST || !isProd (S8)
     lineItems,
   });
 
@@ -164,6 +164,48 @@ export async function fetchActiveSubscription(store: Store): Promise<ActiveSubsc
     status: sub.status,
     currentPeriodEnd: sub.currentPeriodEnd,
     usageLineItemId: usageLine?.id ?? null,
+  };
+}
+
+const SUBSCRIPTION_CANCEL = `
+  mutation AppSubscriptionCancel($id: ID!) {
+    appSubscriptionCancel(id: $id) {
+      appSubscription { id status currentPeriodEnd }
+      userErrors { field message }
+    }
+  }`;
+
+export interface CancelSubscriptionResult {
+  status: string;
+  currentPeriodEnd: Date | null;
+}
+
+/**
+ * Self-service downgrade to Free (S8): cancel the shop's active Shopify app
+ * subscription. Returns the cancelled subscription's status + currentPeriodEnd so the
+ * caller can `scheduleDowngrade` — features stay live until the paid period ends (§6b,
+ * no mid-cycle yank) and the nightly reconciliation flips the org to Free once it
+ * elapses. Returns null when there is no active subscription (already Free — idempotent).
+ */
+export async function cancelSubscription(store: Store): Promise<CancelSubscriptionResult | null> {
+  const active = await fetchActiveSubscription(store);
+  if (!active) return null;
+
+  const data = await shopifyGraphqlForStore<{
+    appSubscriptionCancel: {
+      appSubscription: { id: string; status: string; currentPeriodEnd: string | null } | null;
+      userErrors: Array<{ field: string[]; message: string }>;
+    };
+  }>(store, SUBSCRIPTION_CANCEL, { id: active.id });
+
+  const result = data.appSubscriptionCancel;
+  if (result.userErrors.length > 0) {
+    throw new ShopifyApiError('billing_cancel_user_errors', undefined, result.userErrors);
+  }
+  const periodEnd = result.appSubscription?.currentPeriodEnd ?? active.currentPeriodEnd;
+  return {
+    status: result.appSubscription?.status ?? 'CANCELLED',
+    currentPeriodEnd: periodEnd ? new Date(periodEnd) : null,
   };
 }
 

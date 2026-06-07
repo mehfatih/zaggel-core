@@ -7,6 +7,7 @@ import {
   BILLING_CURRENCY,
   SHOPIFY_BILLABLE_PLANS,
   billableConfirmedOrders,
+  resolveBillingTest,
 } from '../config.js';
 import { buildLineItems, planFromShopifyName } from '../billing.js';
 
@@ -57,6 +58,17 @@ describe('buildLineItems', () => {
 
   it('free → no billable lines', () => {
     expect(buildLineItems(PLAN_BILLING.free)).toHaveLength(0);
+  });
+});
+
+describe('resolveBillingTest (S8)', () => {
+  it('the SHOPIFY_BILLING_TEST flag forces test mode on, even in production', () => {
+    expect(resolveBillingTest(true, true)).toBe(true);
+    expect(resolveBillingTest(true, false)).toBe(true);
+  });
+  it('with the flag off, test mode tracks non-production (dev stores never charged)', () => {
+    expect(resolveBillingTest(false, false)).toBe(true); // non-prod → test on
+    expect(resolveBillingTest(false, true)).toBe(false); // prod + flag off → real charge
   });
 });
 

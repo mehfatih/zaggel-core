@@ -91,6 +91,22 @@ export const PLAN_BILLING: Record<PlanCode, PlanBilling> = {
 export const SHOPIFY_BILLABLE_PLANS: PlanCode[] = ['growth', 'pro'];
 
 /**
+ * Whether an app subscription should be created in Shopify TEST mode (S8). The
+ * SHOPIFY_BILLING_TEST env (surfaced here next to the plan constants) forces test
+ * charges ON — used so the App Store reviewer / a staging shop can approve a plan
+ * without real money. When the flag is off we still force test mode OFF-production
+ * only, so dev/staging stores are never actually billed. Pure for testability.
+ */
+export function resolveBillingTest(flag: boolean, isProd: boolean): boolean {
+  return flag || !isProd;
+}
+
+/** Live read of the resolved test-mode flag from the environment. */
+export function billingTestMode(): boolean {
+  return resolveBillingTest(env.shopifyBillingTest, env.isProd);
+}
+
+/**
  * For a Growth merchant, the number of metered (billable) confirmed orders in a
  * period given the total confirmed count — i.e. everything past the included
  * allotment. Pure helper so billing.ts and tests agree on the math.

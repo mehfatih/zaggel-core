@@ -75,4 +75,9 @@ export const env = {
   shopifyApiSecret: process.env.SHOPIFY_API_SECRET ?? '',
   shopifyApiVersion: process.env.SHOPIFY_API_VERSION ?? '2025-01',
   shopifyAppUrl: (process.env.SHOPIFY_APP_URL ?? '').replace(/\/$/, ''),
+
+  // SHOPIFY_BILLING_TEST (S8): force appSubscriptionCreate into Shopify TEST mode
+  // (no real money) — for App Store review / staging on a prod deploy. Default false;
+  // resolved against !isProd (see config.resolveBillingTest) so dev never really charges.
+  shopifyBillingTest: (process.env.SHOPIFY_BILLING_TEST ?? '').toLowerCase() === 'true',
 } as const;
