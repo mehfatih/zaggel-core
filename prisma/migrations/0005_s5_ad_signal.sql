@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS "ad_destinations" (
   "pixel_id"         TEXT NOT NULL,
   "credentials_json" JSONB,
   "test_event_code"  TEXT,
+  "reporting_currency" TEXT,
   "purchase_rung"    "OrderStatus" NOT NULL DEFAULT 'wa_confirmed',
   "submitted_event"  TEXT NOT NULL DEFAULT 'Lead',
   "enabled"          BOOLEAN NOT NULL DEFAULT true,
@@ -35,6 +36,8 @@ CREATE TABLE IF NOT EXISTS "ad_destinations" (
   CONSTRAINT "ad_destinations_org_fk" FOREIGN KEY ("org_id")
     REFERENCES "orgs"("id") ON DELETE CASCADE
 );
+-- Idempotent for tables created by an earlier run of this migration.
+ALTER TABLE "ad_destinations" ADD COLUMN IF NOT EXISTS "reporting_currency" TEXT;
 -- Two PARTIAL unique indexes: Postgres treats NULLs as distinct, so a plain
 -- UNIQUE(org_id, store_id, platform) would allow many org-wide rows. Split them:
 CREATE UNIQUE INDEX IF NOT EXISTS "ad_destinations_store_platform_key"

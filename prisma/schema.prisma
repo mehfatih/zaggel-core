@@ -418,6 +418,7 @@ model AdDestination {
   pixelId         String        @map("pixel_id") // pixel / dataset id
   credentialsJson Json?         @map("credentials_json") // sealed box: { accessToken }
   testEventCode   String?       @map("test_event_code") // Meta Test Events code
+  reportingCurrency String?     @map("reporting_currency") // ad-account currency: target for unsupported display currencies (ADR-0009)
   purchaseRung    OrderStatus   @default(wa_confirmed) @map("purchase_rung") // L6: rung mapped to Purchase
   submittedEvent  String        @default("Lead") @map("submitted_event") // Lead | AddPaymentInfo (STOP-1)
   enabled         Boolean       @default(true)
