@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { runAsSystem } from '../../lib/tenancy.js';
 import { asyncHandler, validateBody } from '../../lib/http/handler.js';
-import { badRequest, notFound } from '../../lib/http/errors.js';
+import { badRequest, notFound, HttpError } from '../../lib/http/errors.js';
 import { authLimiter } from '../../lib/ratelimit.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
 import { issueTokens } from '../../lib/auth/tokens.js';
@@ -27,7 +27,7 @@ export const shopifyRouter = Router();
 
 /** 503 until the Shopify app credentials are configured (dev convenience). */
 function ensureConfigured(): void {
-  if (!shopifyConfigured()) throw new ShopifyAuthError('shopify_not_configured');
+  if (!shopifyConfigured()) throw new HttpError(503, 'shopify_not_configured', 'Shopify app is not configured');
 }
 
 // --- Session bridge: the embedded admin's entry point (no requireAuth) ---
