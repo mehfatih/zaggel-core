@@ -23,7 +23,9 @@ const patchSchema = z.object({
   status: z.enum(['draft', 'live', 'paused']).optional(),
   pricingMode: z.enum(['linked', 'independent']).optional(),
   schemaJson: formSchemaV1.optional(),
-  designJson: z.record(z.unknown()).optional(),
+  // Issue #1: nullable so the builder can RESET design to null. `.optional()` keeps
+  // the key absent → untouched; an explicit `null` clears it (see PATCH handler).
+  designJson: z.record(z.unknown()).nullable().optional(),
 });
 
 // Forms are scoped through their store's org_id (nested tenant model, ADR-0001).
@@ -85,15 +87,19 @@ formsRouter.patch(
   asyncHandler(async (req, res) => {
     const orgId = req.auth!.orgId;
     const body = req.body as z.infer<typeof patchSchema>;
+    const data: Prisma.FormUpdateInput = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.status !== undefined) data.status = body.status;
+    if (body.pricingMode !== undefined) data.pricingMode = body.pricingMode;
+    if (body.schemaJson !== undefined) data.schemaJson = body.schemaJson as Prisma.InputJsonValue;
+    // Issue #1: distinguish "key absent" (leave design untouched) from explicit
+    // null (clear it). `Prisma.DbNull` writes SQL NULL to the nullable Json column.
+    if ('designJson' in body) {
+      data.designJson = body.designJson === null ? Prisma.DbNull : (body.designJson as Prisma.InputJsonValue);
+    }
     const result = await prisma.form.updateMany({
       where: { id: req.params.id!, ...orgScope(orgId) },
-      data: {
-        ...(body.name ? { name: body.name } : {}),
-        ...(body.status ? { status: body.status } : {}),
-        ...(body.pricingMode ? { pricingMode: body.pricingMode } : {}),
-        ...(body.schemaJson ? { schemaJson: body.schemaJson as Prisma.InputJsonValue } : {}),
-        ...(body.designJson ? { designJson: body.designJson as Prisma.InputJsonValue } : {}),
-      },
+      data,
     });
     if (result.count === 0) throw notFound('form_not_found');
     const form = await prisma.form.findFirst({ where: { id: req.params.id!, ...orgScope(orgId) } });
