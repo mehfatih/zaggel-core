@@ -9,7 +9,7 @@
 // snapshot and totals all speak that currency. Display formatting is delegated to
 // the currency formatter (ADR-0007).
 
-import type { Form, FormProduct, Product, ShippingRule } from '@prisma/client';
+import type { Form, FormProduct, Governorate, Product, ShippingRule } from '@prisma/client';
 import { prisma } from '../prisma.js';
 import { formatPrice } from '../currency/format.js';
 import type { NumeralStyle } from '../currency/catalog.js';
@@ -100,6 +100,7 @@ export interface SnapshotProduct {
 
 export interface SnapshotShipping {
   governorateId: string;
+  iso3166_2: string | null; // CR2: SDK submits differential shipping by this key
   fee: number;
   formatted: string;
   etaText: string | null;
@@ -186,6 +187,7 @@ export function priceOrder(snapshot: PricingSnapshot, items: OrderItemInput[], g
 }
 
 type FormProductWithProduct = FormProduct & { product: Product };
+type ShippingRuleWithGov = ShippingRule & { governorate?: Pick<Governorate, 'iso3166_2'> | null };
 
 /** Resolve a product's unit price (in the form's display currency) for the active mode. */
 function unitPriceFor(form: Form, fp: FormProductWithProduct, settings: PricingSettings): number | null {
@@ -202,7 +204,7 @@ function unitPriceFor(form: Form, fp: FormProductWithProduct, settings: PricingS
 export function assembleSnapshot(
   form: Form,
   formProducts: FormProductWithProduct[],
-  shippingRules: ShippingRule[],
+  shippingRules: ShippingRuleWithGov[],
 ): PricingSnapshot {
   const settings = readPricingSettings(form);
   const currency = resolveFormCurrency(form);
@@ -232,6 +234,7 @@ export function assembleSnapshot(
     const fee = dec(r.fee) ?? 0;
     return {
       governorateId: r.governorateId,
+      iso3166_2: r.governorate?.iso3166_2 ?? null,
       fee,
       formatted: formatPrice(fee, currency, fmtOpts),
       etaText: r.etaText,
@@ -260,7 +263,7 @@ export async function buildPricingSnapshot(formId: string): Promise<PricingSnaps
   if (!form) return null;
   const [formProducts, shippingRules] = await Promise.all([
     prisma.formProduct.findMany({ where: { formId }, include: { product: true } }),
-    prisma.shippingRule.findMany({ where: { formId } }),
+    prisma.shippingRule.findMany({ where: { formId }, include: { governorate: { select: { iso3166_2: true } } } }),
   ]);
   return assembleSnapshot(form, formProducts, shippingRules);
 }
