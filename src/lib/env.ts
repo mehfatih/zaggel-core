@@ -54,6 +54,10 @@ export const env = {
   // Secret for the stateless WA OTP (HMAC over phone+form+time window — no table).
   waOtpSecret: isProd ? required('WA_OTP_SECRET') : process.env.WA_OTP_SECRET ?? 'dev-wa-otp-secret',
 
+  // Secret for the rotating manifest submit token (HMAC over form+time window — no
+  // table). CR3: embedded in the manifest, validated on order POST when present.
+  submitTokenSecret: isProd ? required('SUBMIT_TOKEN_SECRET') : process.env.SUBMIT_TOKEN_SECRET ?? 'dev-submit-token-secret',
+
   // S6 fraud shield — datacenter/VPN IP prefixes (comma-separated, e.g. "34.,35.").
   // Lightweight stand-in for a full ASN database (ADR-0013, "heuristics first").
   // Optional; empty by default so the signal simply never fires until configured.
