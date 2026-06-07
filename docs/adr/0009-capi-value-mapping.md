@@ -43,3 +43,14 @@ is mapped to Purchase.
   surfaced to a third party; absence of a rate is visible, not silently papered over.
 - S5 must ship the platform supported-currency lists + the send-time resolver; S3
   ships the durable inputs (display pair on every order, dated reporting rates).
+
+## S5 implementation note — where "reporting currency" lives
+The ADR's "org reporting currency" is stored **per destination**
+(`ad_destinations.reporting_currency`) rather than once on the org. Rationale: each
+ad account/pixel reports in its own currency, and a multi-brand org may run Meta in
+USD and another platform in SAR. This is a superset of the org-level intent (a
+single-destination org behaves identically) and changes nothing about the rule: no
+fabricated FX, dated rates only, `original_*` always preserved. Branch 2 requires
+both a `reporting_currency` AND an applicable dated rate; otherwise branch 3
+(valueless + nudge) applies. Implemented in `src/lib/events/value-mapping.ts` with
+the per-platform lists in `src/lib/events/supported-currencies.ts`.

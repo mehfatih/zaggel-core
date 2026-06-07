@@ -16,6 +16,17 @@ Canonical ladder (order status → meaning):
 - **Upgradeable:** merchant may move `Purchase` to `delivered` (highest quality signal).
 - Lower rungs map to `Lead` (submitted) and a custom `WAConfirmed` event.
 
+### `submitted` rung — configurable standard event (refined in S5)
+- The `submitted` rung's **default** standard event is **`Lead`** (FormSubmit
+  semantics). A merchant may opt it up to **`AddPaymentInfo`** (deeper-funnel signal)
+  via `ad_destinations.submitted_event` (per destination). Decided at STOP-1 to
+  reconcile this ADR (Lead) with the S5 scope text (AddPaymentInfo): ship both, Lead
+  out of the box. `wa_confirmed` always also emits the custom `WAConfirmed`; the
+  Purchase rung (L6) is independent of this choice.
+- `refused` emits a custom `Refused` (no value); `delivered` emits a custom
+  `Delivered` (value + `delivered=true`). `shipped`/`cancelled` fire no platform
+  event in v1.
+
 ### value / currency rule (consumed in S5, detailed in S3/ADR-0007)
 - CAPI `value` + `currency` = the **display pair** the customer saw (source of truth for the promise).
 - For Meta-**unsupported** currencies (e.g. IQD), send the merchant's **reporting currency** value + `custom_data.original_currency` = the true display code. The supported-currency list and fallback table are maintained in S5.
