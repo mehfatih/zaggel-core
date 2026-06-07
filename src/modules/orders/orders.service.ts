@@ -11,7 +11,7 @@ import { transition, IllegalTransitionError, type TransitionOptions } from '../.
 import { incrementUsage } from '../../lib/entitlements/service.js';
 import { conflict, notFound } from '../../lib/http/errors.js';
 import { emitOrderEvent, type OrderEventName } from '../../lib/webhooks/dispatch.js';
-import { queueOrderOutcome } from '../../lib/events/outbox.js';
+import { queueLadderEvent } from '../../lib/events/outbox.js';
 
 // Order status → outbound webhook event (only the rungs subscribers care about).
 const STATUS_EVENT: Partial<Record<OrderStatus, OrderEventName>> = {
@@ -55,8 +55,12 @@ export async function transitionOrder(
   // Billing signal: the per-confirmed-order fee (L8) counts confirmations.
   if (to === 'wa_confirmed') await incrementUsage(orgId, 'wa_confirmed');
 
-  // Terminal outcome → queue the canonical ladder event for the S5 dispatcher.
-  if (to === 'delivered' || to === 'refused') await queueOrderOutcome(updated);
+  // Signal-bearing rungs → queue the canonical ladder event per connected
+  // destination for the S5 dispatcher. wa_confirmed is the default Purchase target
+  // (L6); delivered/refused feed the quality + negative-signal audiences.
+  if (to === 'wa_confirmed' || to === 'delivered' || to === 'refused') {
+    await queueLadderEvent(updated, to);
+  }
 
   // Outbound webhook for the subscribed rungs (best-effort, never throws here).
   const event = STATUS_EVENT[to];
