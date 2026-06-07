@@ -53,4 +53,12 @@ export const env = {
 
   // Secret for the stateless WA OTP (HMAC over phone+form+time window — no table).
   waOtpSecret: isProd ? required('WA_OTP_SECRET') : process.env.WA_OTP_SECRET ?? 'dev-wa-otp-secret',
+
+  // S6 fraud shield — datacenter/VPN IP prefixes (comma-separated, e.g. "34.,35.").
+  // Lightweight stand-in for a full ASN database (ADR-0013, "heuristics first").
+  // Optional; empty by default so the signal simply never fires until configured.
+  datacenterIpPrefixes: (process.env.DATACENTER_IP_PREFIXES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
 } as const;
