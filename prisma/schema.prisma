@@ -139,6 +139,8 @@ model Org {
   waSettings       WaSettings?
   waTemplates      WaTemplate[]
   webhookEndpoints WebhookEndpoint[]
+  adDestinations   AdDestination[]
+  adCosts          AdCost[]
 
   @@map("orgs")
 }
@@ -350,6 +352,7 @@ model Order {
   utmContent  String? @map("utm_content")
   clickIdFbc  String? @map("click_id_fbc")
   clickIdTtclid String? @map("click_id_ttclid")
+  fbp         String? @map("fbp") // Meta browser id (_fbp cookie) — advanced matching / EMQ (S5)
   ip          String?
   userAgent   String? @map("user_agent")
 
@@ -385,6 +388,8 @@ model EventOutbox {
   payloadJson    Json          @map("payload_json")
   status         OutboxStatus  @default(pending)
   attempts       Int           @default(0)
+  lastError      String?       @map("last_error") // S5: dispatcher failure diagnostics (dead-letter view)
+  nextAttemptAt  DateTime?     @map("next_attempt_at") // S5: backoff schedule for retries
   idempotencyKey String        @unique @map("idempotency_key") // approved addition #1 (ADR-0005)
   sentAt         DateTime?     @map("sent_at")
   createdAt      DateTime      @default(now()) @map("created_at")
@@ -395,6 +400,54 @@ model EventOutbox {
   @@index([status])
   @@index([orderId])
   @@map("events_outbox")
+}
+
+// Per-platform ad destination (S5, ADR-0012): where the event ladder is sent.
+// One row per (org, store, platform); store_id NULL = org-wide default, a store
+// row overrides it (multi-brand orgs run different pixels/ad accounts). The access
+// token is sealed via the libsodium vault (same posture as wa_settings).
+//
+// Uniqueness is enforced by TWO PARTIAL unique indexes in raw SQL (Prisma can't
+// express a WHERE-filtered unique): one for store-specific rows, one for org-wide
+// rows. See prisma/migrations/0005_s5_ad_signal.sql.
+model AdDestination {
+  id              String        @id @default(cuid())
+  orgId           String        @map("org_id")
+  storeId         String?       @map("store_id") // null = org-wide default
+  platform        EventPlatform
+  pixelId         String        @map("pixel_id") // pixel / dataset id
+  credentialsJson Json?         @map("credentials_json") // sealed box: { accessToken }
+  testEventCode   String?       @map("test_event_code") // Meta Test Events code
+  purchaseRung    OrderStatus   @default(wa_confirmed) @map("purchase_rung") // L6: rung mapped to Purchase
+  submittedEvent  String        @default("Lead") @map("submitted_event") // Lead | AddPaymentInfo (STOP-1)
+  enabled         Boolean       @default(true)
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("ad_destinations")
+}
+
+// Manual ad-spend import (S5, CSV v1) → feeds delivered-ROAS in the attribution
+// dashboard. Keyed by utm campaign/content/term (the Levana naming convention).
+// Marketing-API auto-ingestion is backlog (out of scope per S5).
+model AdCost {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  spendOn     DateTime @map("spend_on") @db.Date
+  utmCampaign String?  @map("utm_campaign")
+  utmContent  String?  @map("utm_content")
+  utmTerm     String?  @map("utm_term")
+  amount      Decimal  @db.Decimal(18, 3)
+  currency    String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("ad_costs")
 }
 
 // Cross-org by design (hashed, contribute-to-consume — ADR-0004 / L7). Not org-scoped on read.
