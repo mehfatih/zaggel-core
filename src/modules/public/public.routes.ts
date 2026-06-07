@@ -18,6 +18,8 @@ import { queueLadderEvent } from '../../lib/events/outbox.js';
 import { notifyMerchant } from '../../lib/notify/notifier.js';
 import { parsePhone, normalizeE164 } from '../../lib/blacklist/phone.js';
 import { assessOrderRisk } from '../../lib/fraud/assess.js';
+import { buildManifestGeo } from '../../lib/geo/manifest-geo.js';
+import { generateSubmitToken, verifySubmitToken } from '../../lib/forms/submit-token.js';
 
 /** Whether a form requires a WhatsApp OTP before accepting an order (S4). */
 function formRequiresOtp(form: { schemaJson: unknown }): boolean {
@@ -75,6 +77,10 @@ publicRouter.get(
     // Pricing snapshot is built in system context (public route has no org binding).
     const pricing = await runAsSystem(() => buildPricingSnapshot(form.id));
 
+    // Geo block (CR1): governorate options for the form's countries + per-gov
+    // shipping matched from the snapshot. Retires the SDK's vendored geo fallback.
+    const geo = await runAsSystem(() => buildManifestGeo(form.schemaJson, pricing?.shipping ?? []));
+
     const manifest = {
       version: 1,
       formId: form.id,
@@ -84,6 +90,10 @@ publicRouter.get(
       schema: form.schemaJson,
       design: form.designJson,
       pricing, // S3 pricing engine snapshot
+      geo, // CR1 resolved governorates + shipping
+      // Rotating submit token (CR3): the SDK echoes it on order POST. Soft in v1
+      // — validated only when present, so old SDK builds keep working.
+      submitToken: generateSubmitToken(form.id),
       store: { platform: store.platform, domain: store.domain },
       updatedAt: form.updatedAt,
     };
@@ -100,6 +110,39 @@ publicRouter.get(
   }),
 );
 
+// --- Public geo catalog (CR1) ---
+// Global reference data (governorate list for a country). Lets the SDK fetch the
+// catalog live instead of vendoring it. Non-sensitive, so CORS is open.
+publicRouter.options('/public/v1/geo/governorates', (_req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.status(204).end();
+});
+
+publicRouter.get(
+  '/public/v1/geo/governorates',
+  asyncHandler(async (req, res) => {
+    const raw = typeof req.query.country === 'string' ? req.query.country.toUpperCase() : '';
+    if (!/^[A-Z]{2}$/.test(raw)) throw badRequest('invalid_country');
+    const govs = await runAsSystem(() =>
+      prisma.governorate.findMany({ where: { countryCode: raw }, orderBy: { sort: 'asc' } }),
+    );
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // catalog is effectively static
+    res.json({
+      ok: true,
+      country: raw,
+      governorates: govs.map((g) => ({
+        id: g.id,
+        iso3166_2: g.iso3166_2,
+        nameAr: g.nameAr,
+        nameEn: g.nameEn,
+        sort: g.sort,
+      })),
+    });
+  }),
+);
+
 // --- Order intake ---
 const orderSchema = z.object({
   name: z.string().min(1).max(160),
@@ -110,6 +153,7 @@ const orderSchema = z.object({
   // Selected line items; a single-product form may omit these (defaults to 1×).
   items: z.array(z.object({ productId: z.string().min(1), qty: z.coerce.number().int().positive().default(1) })).optional(),
   otp: z.string().max(8).optional(), // required only when the form has otp_required
+  submitToken: z.string().max(128).optional(), // CR3: rotating manifest token (soft — validated only when present)
   company: z.string().optional(), // honeypot — must stay empty
   // SDK behavior telemetry (S6 risk scoring). All optional + advisory.
   behavior: z
@@ -155,6 +199,13 @@ publicRouter.post(
     if (body.company && body.company.trim() !== '') {
       res.status(201).json({ ok: true, ref: 'ok' });
       return;
+    }
+
+    // Rotating submit token (CR3). Soft posture: validated ONLY when the SDK sent
+    // one, so manifests/SDK builds that predate the token keep working unchanged.
+    // When present it must match the current/previous window for THIS form.
+    if (body.submitToken && !verifySubmitToken(form.id, body.submitToken)) {
+      throw badRequest('submit_token_invalid');
     }
 
     // OTP gate (S4): high-fraud forms require a valid WA OTP before we persist.
