@@ -85,7 +85,7 @@ describe.skipIf(!hasDb)('S6 fraud-shield DoD', () => {
     const oc = await submitOrder(cFormId, C_OWN_PHONE);
     expect(oc.status).toBe(201);
     await refuse(c.token, oc.body.ref);
-  });
+  }, 60000); // heavy setup: ~21 sequential roundtrips to the remote dev DB
 
   afterAll(async () => {
     await runAsSystem(async () => {
@@ -113,7 +113,9 @@ describe.skipIf(!hasDb)('S6 fraud-shield DoD', () => {
   it('auto-flags Yellow on a third org and forces WA-OTP', async () => {
     const res = await submitOrder(cFormId, BAD_PHONE);
     // Yellow band → the intake refuses to persist silently and demands a WA-OTP.
+    // (badRequest puts the specific code in `message`; `error` is the generic class.)
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('otp_required');
+    expect(res.body.message).toBe('otp_required');
+    expect(res.body.details).toMatchObject({ reason: 'risk_review' });
   });
 });

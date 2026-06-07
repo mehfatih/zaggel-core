@@ -23,7 +23,7 @@ A pure, additive scorer (`scorer.ts`) sums weighted signals and clamps to 100:
 | `honeypot` | 40 | SDK honeypot touched |
 | `fill_too_fast` | 20 | fill time < human floor |
 | `paste_only` | 10 | fields paste-filled |
-| `headless_ua` | 25 | missing/automation user-agent |
+| `headless_ua` | 25 | known automation user-agent (absence is NOT flagged) |
 | `datacenter_ip` | 20 | IP prefix list (ASN DB = future) |
 | `ip_velocity` | 15 | same IP ≥ N orders / 24h (org) |
 

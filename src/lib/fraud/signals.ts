@@ -16,9 +16,15 @@ import type { RiskSignals } from './scorer.js';
 
 const HEADLESS_UA = /headless|phantomjs|slimerjs|python-requests|curl\/|wget|scrapy|httpclient|puppeteer|playwright/i;
 
-/** UA heuristic: missing or automation-tool user agents look non-human. */
+/**
+ * UA heuristic: flag known automation-tool signatures only. A MISSING UA is NOT
+ * flagged — server-to-server, native apps, and privacy tools legitimately omit it,
+ * so penalizing absence causes false positives (an empty UA alone must never push
+ * a real buyer toward OTP/rejection). Bots that hide their UA still trip honeypot,
+ * fill-time, and velocity signals.
+ */
 export function isHeadlessUa(ua: string | null): boolean {
-  if (!ua || ua.trim() === '') return true;
+  if (!ua || ua.trim() === '') return false;
   return HEADLESS_UA.test(ua);
 }
 
