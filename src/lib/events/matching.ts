@@ -30,10 +30,10 @@ function normCity(s: string): string {
 
 /** Full name → first / last by first whitespace (single-field forms — L5). */
 export function splitName(full: string): { first?: string; last?: string } {
-  const parts = full.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return {};
-  if (parts.length === 1) return { first: parts[0] };
-  return { first: parts[0], last: parts.slice(1).join(' ') };
+  const [first, ...rest] = full.trim().split(/\s+/).filter(Boolean);
+  if (!first) return {};
+  if (rest.length === 0) return { first };
+  return { first, last: rest.join(' ') };
 }
 
 export interface RawUserData {

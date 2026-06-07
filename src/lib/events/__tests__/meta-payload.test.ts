@@ -55,20 +55,20 @@ describe('buildMetaPayload (Meta CAPI)', () => {
   });
 
   it('submitted emits Lead with no value; AddPaymentInfo when configured', () => {
-    expect(buildMetaPayload({ ...base, rung: 'submitted' }).data[0].event_name).toBe('Lead');
-    expect(buildMetaPayload({ ...base, rung: 'submitted' }).data[0].custom_data).toBeUndefined();
-    expect(buildMetaPayload({ ...base, rung: 'submitted', submittedEvent: 'AddPaymentInfo' }).data[0].event_name).toBe('AddPaymentInfo');
+    expect(buildMetaPayload({ ...base, rung: 'submitted' }).data[0]!.event_name).toBe('Lead');
+    expect(buildMetaPayload({ ...base, rung: 'submitted' }).data[0]!.custom_data).toBeUndefined();
+    expect(buildMetaPayload({ ...base, rung: 'submitted', submittedEvent: 'AddPaymentInfo' }).data[0]!.event_name).toBe('AddPaymentInfo');
   });
 
   it('refused emits a custom Refused event with no value', () => {
     const p = buildMetaPayload({ ...base, rung: 'refused' });
-    expect(p.data[0].event_name).toBe('Refused');
-    expect(p.data[0].custom_data).toEqual({ refused: true });
+    expect(p.data[0]!.event_name).toBe('Refused');
+    expect(p.data[0]!.custom_data).toEqual({ refused: true });
   });
 
   it('unsupported display currency (IQD) → converted value + original_* (ADR-0009 branch 2)', () => {
     const p = buildMetaPayload({ ...base, rung: 'delivered', displayValue: 26000, displayCurrency: 'IQD' });
-    const d = p.data[0];
+    const d = p.data[0]!;
     expect(d.custom_data).toEqual({ value: 19.76, currency: 'USD', original_value: 26000, original_currency: 'IQD', delivered: true });
   });
 
